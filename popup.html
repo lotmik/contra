@@ -27,10 +27,6 @@
         </label>
       </section>
 
-      <section class="test-controls" aria-label="Testing controls">
-        <button id="test-disable-btn" type="button">Temporary Disable (60s)</button>
-      </section>
-
       <div id="lockable-area">
         <div id="unlock-challenge" aria-hidden="true">
           <label for="unlock-phrase-input">Unlock phrase</label>
@@ -45,51 +41,58 @@
           <button id="unlock-confirm-btn" type="button">Confirm</button>
         </div>
 
-        <div id="settings-blur-wrap">
-          <section id="settings-area" aria-label="Settings">
-            <div class="control-group">
-              <label for="mode-select">Mode</label>
-              <select id="mode-select" name="mode-select">
-                <option value="block">Blocklist</option>
-                <option value="allow">Whitelist</option>
-              </select>
-            </div>
+        <details id="settings-dropdown">
+          <summary>Settings</summary>
+          <div id="settings-blur-wrap">
+            <section id="settings-area" aria-label="Settings">
+              <section class="test-controls" aria-label="Testing controls">
+                <button id="test-disable-btn" type="button">Temporary Disable (60s)</button>
+              </section>
 
-            <div class="control-group">
-              <label for="url-list">URLs (one per line)</label>
-              <textarea
-                id="url-list"
-                name="url-list"
-                rows="5"
-                placeholder="example.com"
-              ></textarea>
-            </div>
-
-            <div class="control-group">
-              <label for="unlock-mode-select">Unlock mode</label>
-              <select id="unlock-mode-select" name="unlock-mode-select">
-                <option value="timer">Timer</option>
-                <option value="phrase">Phrase</option>
-              </select>
-            </div>
-
-            <div class="control-group">
-              <div class="timer-row">
-                <label for="timer-minutes">Timer duration</label>
-                <output id="timer-minutes-value" for="timer-minutes">25 min</output>
+              <div class="control-group">
+                <label for="mode-select">Mode</label>
+                <select id="mode-select" name="mode-select">
+                  <option value="block">Blocklist</option>
+                  <option value="allow">Whitelist</option>
+                </select>
               </div>
-              <input
-                id="timer-minutes"
-                name="timer-minutes"
-                type="range"
-                min="1"
-                max="180"
-                step="1"
-                value="25"
-              />
-            </div>
-          </section>
-        </div>
+
+              <div class="control-group">
+                <label for="url-list">URLs (one per line)</label>
+                <textarea
+                  id="url-list"
+                  name="url-list"
+                  rows="5"
+                  placeholder="example.com"
+                ></textarea>
+              </div>
+
+              <div class="control-group">
+                <label for="unlock-mode-select">Unlock mode</label>
+                <select id="unlock-mode-select" name="unlock-mode-select">
+                  <option value="timer">Timer</option>
+                  <option value="phrase">Phrase</option>
+                </select>
+              </div>
+
+              <div class="control-group">
+                <div class="timer-row">
+                  <label for="timer-minutes">Timer duration</label>
+                  <output id="timer-minutes-value" for="timer-minutes">25 min</output>
+                </div>
+                <input
+                  id="timer-minutes"
+                  name="timer-minutes"
+                  type="range"
+                  min="1"
+                  max="180"
+                  step="1"
+                  value="25"
+                />
+              </div>
+            </section>
+          </div>
+        </details>
       </div>
     </main>
     <script src="popup.js"></script>

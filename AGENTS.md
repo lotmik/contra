@@ -90,3 +90,4 @@ After each completed change set, the agent must automatically perform the full c
     Validate: Confirm the deployed target is reachable and healthy (for example, HTTP 200 and basic smoke checks).
 
     Report: Return a concise completion summary with commit SHA, push status, deployment result, and verification outcomes.
+    Do the whole GitHub flow when user types "git" somewhere in his prompt
