@@ -8,7 +8,6 @@
     },
     "BlockAboutAddons": true,
     "BlockAboutConfig": true,
-    "DisableSafeMode": true,
-    "DisableDeveloperTools": true
+    "DisableSafeMode": true
   }
 }

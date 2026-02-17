@@ -11,6 +11,9 @@ Before each deployment:
 scripts/install-firefox-policy.sh
 ```
 
+This policy setup does **not** disable Developer Tools, so `about:debugging` remains available.
+If you installed an older template, run the install command again to rewrite `/etc/firefox/policies/policies.json`.
+
 ## Verify
 ```bash
 scripts/verify-firefox-policy.sh
@@ -42,3 +45,12 @@ sudo rm -f /etc/firefox/policies/policies.json
 ```
 
 Then restart Firefox.
+
+## One-Command Uninstall/Revert
+```bash
+scripts/uninstall-firefox-policy.sh
+```
+
+Optional flags:
+- `--no-restore-backup`: remove policy and skip backup restore.
+- `--keep-managed-xpi`: keep `/opt/contra/contra.xpi` in place.

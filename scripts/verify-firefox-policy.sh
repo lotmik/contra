@@ -53,6 +53,17 @@ check_file_contains() {
   fi
 }
 
+check_file_not_contains() {
+  local path="$1"
+  local token="$2"
+  if rg -Fq "${token}" "${path}"; then
+    echo "FAIL: ${path} contains forbidden token ${token}"
+    failures=$((failures + 1))
+  else
+    echo "OK: ${path} does not contain ${token}"
+  fi
+}
+
 check_not_user_writable() {
   local path="$1"
   if [[ -w "${path}" ]]; then
@@ -82,7 +93,7 @@ if [[ -e "${POLICY_FILE}" ]]; then
   check_file_contains "${POLICY_FILE}" "\"BlockAboutAddons\": true"
   check_file_contains "${POLICY_FILE}" "\"BlockAboutConfig\": true"
   check_file_contains "${POLICY_FILE}" "\"DisableSafeMode\": true"
-  check_file_contains "${POLICY_FILE}" "\"DisableDeveloperTools\": true"
+  check_file_not_contains "${POLICY_FILE}" "\"DisableDeveloperTools\": true"
 fi
 
 if [[ "${failures}" -gt 0 ]]; then

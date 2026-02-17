@@ -23,7 +23,9 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
    - Build package, install root-owned XPI to `/opt/contra/contra.xpi`, write `/etc/firefox/policies/policies.json`, keep rollback backup in `/opt/contra/releases/`.
 4. `scripts/verify-firefox-policy.sh`
    - Validate required files, ownership/permissions, and policy content expectations.
-5. Popup status
+5. `scripts/uninstall-firefox-policy.sh`
+   - Remove policy lock and revert managed XPI using latest backup when available.
+6. Popup status
    - Add managed-lock badge and guidance text backed by `browser.management.getSelf()` checks in background worker.
 
 ## Verification
