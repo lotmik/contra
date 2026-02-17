@@ -54,3 +54,24 @@ scripts/uninstall-firefox-policy.sh
 Optional flags:
 - `--no-restore-backup`: remove policy and skip backup restore.
 - `--keep-managed-xpi`: keep `/opt/contra/contra.xpi` in place.
+
+## Local Dev Convenience (Unsigned, Persistent Profile)
+Use this only for local development on Firefox Developer Edition/Nightly.
+
+```bash
+scripts/dev-local-firefox.sh
+```
+
+What it does:
+1. Creates/uses dedicated profile: `~/.mozilla/firefox/contra-dev-profile`
+2. Writes `user.js` with unsigned-addon dev prefs
+3. Opens Firefox at `about:addons`
+
+Then install once in that profile:
+1. Gear icon -> Install Add-on From File...
+2. Choose `dist/contra.xpi`
+
+Notes:
+- Build XPI first: `scripts/build-xpi.sh`
+- Release Firefox usually requires signed add-ons regardless of the dev pref.
+- This mode is for development convenience, not policy lock.

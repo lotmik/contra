@@ -25,7 +25,9 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
    - Validate required files, ownership/permissions, and policy content expectations.
 5. `scripts/uninstall-firefox-policy.sh`
    - Remove policy lock and revert managed XPI using latest backup when available.
-6. Popup status
+6. `scripts/dev-local-firefox.sh`
+   - Launch a dedicated local-dev Firefox profile with unsigned-addon preference for persistent local testing on Developer Edition/Nightly.
+7. Popup status
    - Add managed-lock badge and guidance text backed by `browser.management.getSelf()` checks in background worker.
 
 ## Verification
@@ -34,5 +36,6 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 - `bash -n scripts/build-xpi.sh`
 - `bash -n scripts/install-firefox-policy.sh`
 - `bash -n scripts/verify-firefox-policy.sh`
+- `bash -n scripts/dev-local-firefox.sh`
 - `scripts/build-xpi.sh` successful
 - `scripts/verify-firefox-policy.sh` run (expected warnings/failures before sudo install are acceptable in dev state)

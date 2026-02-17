@@ -4,8 +4,13 @@ set -euo pipefail
 TARGET_XPI="/opt/contra/contra.xpi"
 POLICY_FILE="/etc/firefox/policies/policies.json"
 EXPECTED_INSTALL_URL="file:///opt/contra/contra.xpi"
+HAS_RG=false
 
 failures=0
+
+if command -v rg >/dev/null 2>&1; then
+  HAS_RG=true
+fi
 
 check_exists() {
   local path="$1"
@@ -45,7 +50,9 @@ check_mode() {
 check_file_contains() {
   local path="$1"
   local token="$2"
-  if rg -Fq "${token}" "${path}"; then
+  if [[ "${HAS_RG}" == true ]] && rg -Fq "${token}" "${path}"; then
+    echo "OK: ${path} contains ${token}"
+  elif [[ "${HAS_RG}" == false ]] && grep -Fq "${token}" "${path}"; then
     echo "OK: ${path} contains ${token}"
   else
     echo "FAIL: ${path} is missing ${token}"
@@ -56,7 +63,10 @@ check_file_contains() {
 check_file_not_contains() {
   local path="$1"
   local token="$2"
-  if rg -Fq "${token}" "${path}"; then
+  if [[ "${HAS_RG}" == true ]] && rg -Fq "${token}" "${path}"; then
+    echo "FAIL: ${path} contains forbidden token ${token}"
+    failures=$((failures + 1))
+  elif [[ "${HAS_RG}" == false ]] && grep -Fq "${token}" "${path}"; then
     echo "FAIL: ${path} contains forbidden token ${token}"
     failures=$((failures + 1))
   else
