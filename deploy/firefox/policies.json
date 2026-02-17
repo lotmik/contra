@@ -1,0 +1,14 @@
+{
+  "policies": {
+    "ExtensionSettings": {
+      "contra@local": {
+        "installation_mode": "force_installed",
+        "install_url": "__CONTRA_INSTALL_URL__"
+      }
+    },
+    "BlockAboutAddons": true,
+    "BlockAboutConfig": true,
+    "DisableSafeMode": true,
+    "DisableDeveloperTools": true
+  }
+}
