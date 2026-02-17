@@ -1,6 +1,12 @@
 "use strict";
 
 const DEFAULT_UNLOCK_PHRASE = "I swear to god I will focus";
+const DEFAULT_MANAGED_LOCK_STATUS = {
+  active: false,
+  reason: "not_checked",
+  installType: "unknown",
+  checkedAt: 0
+};
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
@@ -28,7 +34,8 @@ const state = {
   timerExpired: true,
   pausePositiveEnabled: true,
   pauseUntil: 0,
-  testDisableUntil: 0
+  testDisableUntil: 0,
+  managedLockStatus: { ...DEFAULT_MANAGED_LOCK_STATUS }
 };
 
 let timerTickId = null;
@@ -36,6 +43,8 @@ let timerTickId = null;
 const elements = {
   body: document.body,
   statusArea: document.getElementById("status-area"),
+  managedLockBadge: document.getElementById("managed-lock-badge"),
+  managedLockDetail: document.getElementById("managed-lock-detail"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
@@ -124,6 +133,58 @@ function updateTimerLabel(minutes) {
 
 function updateStatus(text) {
   elements.statusArea.textContent = text;
+}
+
+function normalizeManagedLockStatus(status = {}) {
+  const installType = typeof status.installType === "string" ? status.installType : "unknown";
+  return {
+    active: status.active === true,
+    reason: typeof status.reason === "string" ? status.reason : "unknown",
+    installType,
+    checkedAt: Number.isFinite(status.checkedAt) ? status.checkedAt : 0
+  };
+}
+
+function getManagedLockDetailText() {
+  const reason = state.managedLockStatus.reason;
+  const installType = state.managedLockStatus.installType;
+
+  if (reason === "managed_active") {
+    return "Policy-managed install detected. Non-sudo removal should be blocked.";
+  }
+
+  if (reason === "management_api_unavailable") {
+    return "Management API unavailable. Verify install mode manually via about:policies.";
+  }
+
+  if (reason === "check_failed") {
+    return "Could not verify policy lock. Open about:policies to confirm active enterprise policy.";
+  }
+
+  if (reason === "not_managed") {
+    return `Install type is "${installType}". Expected "admin" for policy lock.`;
+  }
+
+  return "Managed lock status is unknown. Open about:policies and verify ExtensionSettings.";
+}
+
+function renderManagedLockStatus() {
+  const isActive = state.managedLockStatus.active;
+  const classList = elements.managedLockBadge.classList;
+  classList.remove("is-active", "is-inactive", "is-checking");
+
+  if (state.managedLockStatus.reason === "not_checked") {
+    classList.add("is-checking");
+    elements.managedLockBadge.textContent = "Managed lock: checking...";
+  } else if (isActive) {
+    classList.add("is-active");
+    elements.managedLockBadge.textContent = "Managed lock: active";
+  } else {
+    classList.add("is-inactive");
+    elements.managedLockBadge.textContent = "Managed lock: inactive";
+  }
+
+  elements.managedLockDetail.textContent = getManagedLockDetailText();
 }
 
 function updateTestDisableButton() {
@@ -284,6 +345,7 @@ function startTimerTick() {
 }
 
 function renderUi() {
+  renderManagedLockStatus();
   elements.powerToggle.checked = state.isBlocking;
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
@@ -524,11 +586,34 @@ function handlePhraseInput() {
   }
 }
 
+async function refreshManagedLockStatus(forceRefresh = false) {
+  try {
+    const response = await browser.runtime.sendMessage({
+      type: forceRefresh ? "REFRESH_MANAGED_LOCK_STATUS" : "GET_MANAGED_LOCK_STATUS"
+    });
+
+    if (response?.ok === true && response.status) {
+      state.managedLockStatus = normalizeManagedLockStatus(response.status);
+      renderManagedLockStatus();
+    }
+  } catch (error) {
+    state.managedLockStatus = {
+      active: false,
+      reason: "check_failed",
+      installType: "unknown",
+      checkedAt: Date.now()
+    };
+    renderManagedLockStatus();
+    console.error("Failed to refresh managed lock status", error);
+  }
+}
+
 function refreshFromStorage() {
   void loadStateFromStorage()
     .then(() => {
       syncFormFromState();
       renderUi();
+      return refreshManagedLockStatus(false);
     })
     .catch((error) => {
       console.error("Failed to refresh popup state", error);
@@ -549,6 +634,12 @@ function handleStorageChanged(changes, areaName) {
 }
 
 function handleRuntimeMessage(message = {}) {
+  if (message.type === "MANAGED_LOCK_STATUS_UPDATED" && message.status) {
+    state.managedLockStatus = normalizeManagedLockStatus(message.status);
+    renderManagedLockStatus();
+    return;
+  }
+
   if (
     message.type === "UNLOCK_TIMER_EXPIRED" ||
     message.type === "PAUSE_POSITIVE_STARTED" ||
@@ -564,6 +655,7 @@ async function initializePopup() {
   await loadStateFromStorage();
   syncFormFromState();
   renderUi();
+  await refreshManagedLockStatus(true);
 
   elements.powerToggle.addEventListener("change", () => {
     void handlePowerToggleChange();

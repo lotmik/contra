@@ -11,8 +11,26 @@ let pausePositiveEnabled = true;
 let pauseUntil = 0;
 let testDisableUntil = 0;
 let aggressiveTamperIntervalId = null;
+let managedLockStatus = {
+  active: false,
+  reason: "not_checked",
+  installType: "unknown",
+  checkedAt: 0
+};
 
-const TAMPER_PAGES = ["about:addons", "about:debugging", "about:preferences"];
+const TAMPER_PAGES = [
+  "about:addons",
+  "about:debugging",
+  "about:preferences#addons",
+  "chrome://extensions",
+  "chrome://settings/extensions",
+  "edge://extensions",
+  "edge://settings/extensions",
+  "brave://extensions",
+  "brave://settings/extensions",
+  "opera://extensions",
+  "vivaldi://extensions"
+];
 const ALARM_UNLOCK_TIMER = "unlockTimer";
 const ALARM_PAUSE_POSITIVE = "pausePositiveResume";
 const ALARM_TEST_DISABLE = "testDisableResume";
@@ -101,8 +119,39 @@ function shouldEnforceBlocking() {
   return isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest();
 }
 
-function isAddonsUrl(url) {
-  return typeof url === "string" && url.toLowerCase().includes("about:addons");
+function isManagedInstallType(installType) {
+  return installType === "admin";
+}
+
+async function detectManagedLockStatus() {
+  const nextStatus = {
+    active: false,
+    reason: "unknown",
+    installType: "unknown",
+    checkedAt: Date.now()
+  };
+
+  try {
+    if (!browser.management || typeof browser.management.getSelf !== "function") {
+      nextStatus.reason = "management_api_unavailable";
+    } else {
+      const self = await browser.management.getSelf();
+      const installType = typeof self.installType === "string" ? self.installType : "unknown";
+      nextStatus.installType = installType;
+      nextStatus.active = isManagedInstallType(installType) && self.enabled !== false;
+      nextStatus.reason = nextStatus.active ? "managed_active" : "not_managed";
+    }
+  } catch {
+    nextStatus.reason = "check_failed";
+  }
+
+  managedLockStatus = nextStatus;
+  await sendPopupMessage({ type: "MANAGED_LOCK_STATUS_UPDATED", status: managedLockStatus });
+  return managedLockStatus;
+}
+
+function getManagedLockStatus() {
+  return managedLockStatus;
 }
 
 function canStopBlocking() {
@@ -143,22 +192,22 @@ async function checkAndCloseTab(tabId, url) {
   }
 }
 
-async function aggressivelyCloseAddonsTab(tabId, url) {
-  if (!shouldEnforceBlocking() || !isAddonsUrl(url)) {
+async function aggressivelyCloseTamperTab(tabId, url) {
+  if (!shouldEnforceBlocking() || !isTamperUrl(url)) {
     return;
   }
 
   await removeTabSafely(tabId);
 }
 
-async function aggressivelyCloseAddonsTabsByQuery() {
+async function aggressivelyCloseTamperTabsByQuery() {
   if (!shouldEnforceBlocking()) {
     return;
   }
 
   const tabs = await browser.tabs.query({});
-  const addonsTabs = tabs.filter((tab) => isAddonsUrl(tab.url));
-  await Promise.all(addonsTabs.map((tab) => removeTabSafely(tab.id)));
+  const tamperTabs = tabs.filter((tab) => isTamperUrl(tab.pendingUrl || tab.url));
+  await Promise.all(tamperTabs.map((tab) => removeTabSafely(tab.id)));
 }
 
 function stopAggressiveTamperMonitor() {
@@ -175,7 +224,7 @@ function startAggressiveTamperMonitor() {
   }
 
   aggressiveTamperIntervalId = setInterval(() => {
-    void aggressivelyCloseAddonsTabsByQuery();
+    void aggressivelyCloseTamperTabsByQuery();
   }, AGGRESSIVE_TAMPER_INTERVAL_MS);
 }
 
@@ -459,12 +508,16 @@ async function reconcileTimers() {
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const url = changeInfo.url || tab.url;
-  void aggressivelyCloseAddonsTab(tabId, url);
+  void aggressivelyCloseTamperTab(tabId, url);
   void checkAndCloseTab(tabId, url);
 });
 
+browser.tabs.onCreated.addListener((tab) => {
+  void aggressivelyCloseTamperTab(tab.id, tab.pendingUrl || tab.url);
+});
+
 browser.webNavigation.onBeforeNavigate.addListener((details) => {
-  void aggressivelyCloseAddonsTab(details.tabId, details.url);
+  void aggressivelyCloseTamperTab(details.tabId, details.url);
   void checkAndCloseTab(details.tabId, details.url);
 });
 
@@ -472,7 +525,7 @@ browser.tabs.onActivated.addListener((activeInfo) => {
   void (async () => {
     try {
       const tab = await browser.tabs.get(activeInfo.tabId);
-      await aggressivelyCloseAddonsTab(tab.id, tab.url);
+      await aggressivelyCloseTamperTab(tab.id, tab.url);
       await checkAndCloseTab(tab.id, tab.url);
     } catch {
       // Ignore race conditions where the activated tab disappears.
@@ -557,15 +610,24 @@ browser.runtime.onMessage.addListener((message = {}) => {
       .then(() => ({ ok: true }));
   }
 
+  if (type === "GET_MANAGED_LOCK_STATUS") {
+    return Promise.resolve({ ok: true, status: getManagedLockStatus() });
+  }
+
+  if (type === "REFRESH_MANAGED_LOCK_STATUS") {
+    return detectManagedLockStatus().then((status) => ({ ok: true, status }));
+  }
+
   return Promise.resolve({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
 });
 
 void loadState()
   .then(async () => {
+    await detectManagedLockStatus();
     await reconcileTimers();
     reconcileAggressiveTamperMonitor();
     if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {
-      await aggressivelyCloseAddonsTabsByQuery();
+      await aggressivelyCloseTamperTabsByQuery();
       await enforceAllOpenTabs();
     }
   })

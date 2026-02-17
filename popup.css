@@ -42,6 +42,7 @@ body {
 
 header,
 #status-area,
+#managed-lock-area,
 #lockable-area,
 #settings-dropdown,
 #settings-blur-wrap,
@@ -66,6 +67,48 @@ header,
 
 #status-area:empty {
   display: none;
+}
+
+#managed-lock-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.managed-lock-badge {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.managed-lock-badge.is-active {
+  color: #8fffa3;
+  background: rgba(39, 101, 53, 0.45);
+  border-color: rgba(124, 224, 148, 0.5);
+}
+
+.managed-lock-badge.is-inactive {
+  color: #ffb4b4;
+  background: rgba(109, 35, 35, 0.45);
+  border-color: rgba(224, 124, 124, 0.5);
+}
+
+.managed-lock-badge.is-checking {
+  color: var(--text-soft);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.managed-lock-detail {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-soft);
 }
 
 .power-section {
