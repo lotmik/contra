@@ -1,0 +1,245 @@
+:root {
+  --bg: #1e1e1e;
+  --surface: #282828;
+  --surface-soft: #303030;
+  --accent: #4caf50;
+  --text: #ffffff;
+  --text-soft: #d8d8d8;
+  --border: #3a3a3a;
+  --radius: 8px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 320px;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  font-family: "Inter", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#popup-root {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+header,
+#status-area,
+#lockable-area,
+#settings-blur-wrap,
+#settings-area {
+  width: 100%;
+}
+
+#header-title {
+  margin: 0;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+#status-area {
+  min-height: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.power-section {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.test-controls {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+#power-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#power-toggle-label {
+  position: relative;
+  width: 152px;
+  height: 82px;
+  border-radius: 999px;
+  background: #3d3d3d;
+  border: 1px solid #4a4a4a;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 6px 18px rgba(0, 0, 0, 0.35);
+  transition: transform 120ms ease, background-color 140ms ease;
+}
+
+#power-toggle-label::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 140ms ease;
+}
+
+#power-toggle-label:active {
+  transform: scale(0.98);
+}
+
+#power-toggle:checked + #power-toggle-label {
+  background: rgba(76, 175, 80, 0.32);
+  border-color: var(--accent);
+}
+
+#power-toggle:checked + #power-toggle-label::after {
+  transform: translateX(70px);
+  background: var(--accent);
+}
+
+#power-toggle:focus-visible + #power-toggle-label {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#lockable-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+#unlock-challenge {
+  display: none;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  gap: 8px;
+  flex-direction: column;
+}
+
+#settings-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+label {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+select,
+textarea,
+input[type="text"],
+#unlock-confirm-btn {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px;
+}
+
+textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+#unlock-confirm-btn {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+#test-disable-btn {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: #3a3a3a;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.timer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+#timer-minutes-value {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.is-unlock-pending #unlock-challenge {
+  display: flex;
+}
+
+.settings-blurred {
+  filter: blur(4px);
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  border: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
