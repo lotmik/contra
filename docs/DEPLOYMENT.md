@@ -11,7 +11,8 @@ Before each deployment:
 scripts/install-firefox-policy.sh
 ```
 
-This policy setup does **not** disable Developer Tools, so `about:debugging` remains available.
+This policy setup is intentionally minimal: only `ExtensionSettings` force-install is applied.
+It does not block `about:addons`, `about:debugging`, or `about:config`.
 If you installed an older template, run the install command again to rewrite `/etc/firefox/policies/policies.json`.
 
 ## Verify
@@ -75,3 +76,18 @@ Notes:
 - Build XPI first: `scripts/build-xpi.sh`
 - Release Firefox usually requires signed add-ons regardless of the dev pref.
 - This mode is for development convenience, not policy lock.
+
+# 1) Download latest Developer Edition
+cd /tmp
+curl -L -o firefox-devedition.tar.bz2 "https://download.mozilla.org/?product=firefox-devedition-latest&os=linux64&lang=en-US"
+
+# 2) Install under /opt
+sudo rm -rf /opt/firefox-developer
+sudo mkdir -p /opt/firefox-developer
+sudo tar -xjf firefox-devedition.tar.bz2 -C /opt/firefox-developer --strip-components=1
+
+# 3) Create launcher command
+sudo ln -sf /opt/firefox-developer/firefox /usr/local/bin/firefox-developer-edition
+
+# 4) Check it works
+firefox-developer-edition --version

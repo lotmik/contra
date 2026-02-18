@@ -1,7 +1,7 @@
 "use strict";
 
 const DEFAULT_UNLOCK_PHRASE = "I swear to god I will focus";
-const DEFAULT_MANAGED_LOCK_STATUS = {
+const DEFAULT_HARDCORE_MODE_STATUS = {
   active: false,
   reason: "not_checked",
   installType: "unknown",
@@ -35,7 +35,7 @@ const state = {
   pausePositiveEnabled: true,
   pauseUntil: 0,
   testDisableUntil: 0,
-  managedLockStatus: { ...DEFAULT_MANAGED_LOCK_STATUS }
+  hardcoreModeStatus: { ...DEFAULT_HARDCORE_MODE_STATUS }
 };
 
 let timerTickId = null;
@@ -43,8 +43,8 @@ let timerTickId = null;
 const elements = {
   body: document.body,
   statusArea: document.getElementById("status-area"),
-  managedLockBadge: document.getElementById("managed-lock-badge"),
-  managedLockDetail: document.getElementById("managed-lock-detail"),
+  hardcoreModeBadge: document.getElementById("hardcore-mode-badge"),
+  installTypeDetail: document.getElementById("install-type-detail"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
@@ -135,7 +135,7 @@ function updateStatus(text) {
   elements.statusArea.textContent = text;
 }
 
-function normalizeManagedLockStatus(status = {}) {
+function normalizeHardcoreModeStatus(status = {}) {
   const installType = typeof status.installType === "string" ? status.installType : "unknown";
   return {
     active: status.active === true,
@@ -145,46 +145,29 @@ function normalizeManagedLockStatus(status = {}) {
   };
 }
 
-function getManagedLockDetailText() {
-  const reason = state.managedLockStatus.reason;
-  const installType = state.managedLockStatus.installType;
-
-  if (reason === "managed_active") {
-    return "Policy-managed install detected. Non-sudo removal should be blocked.";
+function getInstallTypeLabel(installType) {
+  if (typeof installType !== "string" || installType.trim().length === 0) {
+    return "unknown";
   }
 
-  if (reason === "management_api_unavailable") {
-    return "Management API unavailable. Verify install mode manually via about:policies.";
-  }
-
-  if (reason === "check_failed") {
-    return "Could not verify policy lock. Open about:policies to confirm active enterprise policy.";
-  }
-
-  if (reason === "not_managed") {
-    return `Install type is "${installType}". Expected "admin" for policy lock.`;
-  }
-
-  return "Managed lock status is unknown. Open about:policies and verify ExtensionSettings.";
+  return installType;
 }
 
-function renderManagedLockStatus() {
-  const isActive = state.managedLockStatus.active;
-  const classList = elements.managedLockBadge.classList;
-  classList.remove("is-active", "is-inactive", "is-checking");
+function renderHardcoreModeStatus() {
+  const isActive = state.hardcoreModeStatus.active;
+  const installTypeLabel = getInstallTypeLabel(state.hardcoreModeStatus.installType);
+  const classList = elements.hardcoreModeBadge.classList;
+  classList.remove("is-active", "is-inactive");
 
-  if (state.managedLockStatus.reason === "not_checked") {
-    classList.add("is-checking");
-    elements.managedLockBadge.textContent = "Managed lock: checking...";
-  } else if (isActive) {
+  if (isActive) {
     classList.add("is-active");
-    elements.managedLockBadge.textContent = "Managed lock: active";
+    elements.hardcoreModeBadge.textContent = "Hardcore mode: on";
   } else {
     classList.add("is-inactive");
-    elements.managedLockBadge.textContent = "Managed lock: inactive";
+    elements.hardcoreModeBadge.textContent = "Hardcore mode: off";
   }
 
-  elements.managedLockDetail.textContent = getManagedLockDetailText();
+  elements.installTypeDetail.textContent = `Installation type detected: ${installTypeLabel}`;
 }
 
 function updateTestDisableButton() {
@@ -345,7 +328,7 @@ function startTimerTick() {
 }
 
 function renderUi() {
-  renderManagedLockStatus();
+  renderHardcoreModeStatus();
   elements.powerToggle.checked = state.isBlocking;
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
@@ -586,25 +569,25 @@ function handlePhraseInput() {
   }
 }
 
-async function refreshManagedLockStatus(forceRefresh = false) {
+async function refreshHardcoreModeStatus(forceRefresh = false) {
   try {
     const response = await browser.runtime.sendMessage({
       type: forceRefresh ? "REFRESH_MANAGED_LOCK_STATUS" : "GET_MANAGED_LOCK_STATUS"
     });
 
     if (response?.ok === true && response.status) {
-      state.managedLockStatus = normalizeManagedLockStatus(response.status);
-      renderManagedLockStatus();
+      state.hardcoreModeStatus = normalizeHardcoreModeStatus(response.status);
+      renderHardcoreModeStatus();
     }
   } catch (error) {
-    state.managedLockStatus = {
+    state.hardcoreModeStatus = {
       active: false,
       reason: "check_failed",
       installType: "unknown",
       checkedAt: Date.now()
     };
-    renderManagedLockStatus();
-    console.error("Failed to refresh managed lock status", error);
+    renderHardcoreModeStatus();
+    console.error("Failed to refresh hardcore mode status", error);
   }
 }
 
@@ -613,7 +596,7 @@ function refreshFromStorage() {
     .then(() => {
       syncFormFromState();
       renderUi();
-      return refreshManagedLockStatus(false);
+      return refreshHardcoreModeStatus(false);
     })
     .catch((error) => {
       console.error("Failed to refresh popup state", error);
@@ -635,8 +618,8 @@ function handleStorageChanged(changes, areaName) {
 
 function handleRuntimeMessage(message = {}) {
   if (message.type === "MANAGED_LOCK_STATUS_UPDATED" && message.status) {
-    state.managedLockStatus = normalizeManagedLockStatus(message.status);
-    renderManagedLockStatus();
+    state.hardcoreModeStatus = normalizeHardcoreModeStatus(message.status);
+    renderHardcoreModeStatus();
     return;
   }
 
@@ -655,7 +638,7 @@ async function initializePopup() {
   await loadStateFromStorage();
   syncFormFromState();
   renderUi();
-  await refreshManagedLockStatus(true);
+  await refreshHardcoreModeStatus(true);
 
   elements.powerToggle.addEventListener("change", () => {
     void handlePowerToggleChange();

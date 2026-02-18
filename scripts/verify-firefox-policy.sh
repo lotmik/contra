@@ -100,9 +100,9 @@ if [[ -e "${POLICY_FILE}" ]]; then
   check_file_contains "${POLICY_FILE}" "\"contra@local\""
   check_file_contains "${POLICY_FILE}" "\"installation_mode\": \"force_installed\""
   check_file_contains "${POLICY_FILE}" "\"install_url\": \"${EXPECTED_INSTALL_URL}\""
-  check_file_contains "${POLICY_FILE}" "\"BlockAboutAddons\": true"
-  check_file_contains "${POLICY_FILE}" "\"BlockAboutConfig\": true"
-  check_file_contains "${POLICY_FILE}" "\"DisableSafeMode\": true"
+  check_file_not_contains "${POLICY_FILE}" "\"BlockAboutAddons\": true"
+  check_file_not_contains "${POLICY_FILE}" "\"BlockAboutConfig\": true"
+  check_file_not_contains "${POLICY_FILE}" "\"DisableSafeMode\": true"
   check_file_not_contains "${POLICY_FILE}" "\"DisableDeveloperTools\": true"
 fi
 

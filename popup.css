@@ -42,7 +42,7 @@ body {
 
 header,
 #status-area,
-#managed-lock-area,
+#hardcore-mode-area,
 #lockable-area,
 #settings-dropdown,
 #settings-blur-wrap,
@@ -69,15 +69,14 @@ header,
   display: none;
 }
 
-#managed-lock-area {
+#hardcore-mode-area {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
   text-align: center;
 }
 
-.managed-lock-badge {
+.hardcore-mode-badge {
   margin: 0;
   padding: 4px 8px;
   border-radius: 999px;
@@ -87,28 +86,23 @@ header,
   letter-spacing: 0.01em;
 }
 
-.managed-lock-badge.is-active {
+.hardcore-mode-badge.is-active {
   color: #8fffa3;
   background: rgba(39, 101, 53, 0.45);
   border-color: rgba(124, 224, 148, 0.5);
 }
 
-.managed-lock-badge.is-inactive {
+.hardcore-mode-badge.is-inactive {
   color: #ffb4b4;
   background: rgba(109, 35, 35, 0.45);
   border-color: rgba(224, 124, 124, 0.5);
 }
 
-.managed-lock-badge.is-checking {
-  color: var(--text-soft);
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-.managed-lock-detail {
+.install-type-detail {
   margin: 0;
   font-size: 11px;
   color: var(--text-soft);
+  text-align: center;
 }
 
 .power-section {
