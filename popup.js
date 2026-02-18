@@ -706,8 +706,13 @@ async function handleUnlockConfirmClick() {
 }
 
 function handleModeChange() {
+  state[getActiveListKey()] = parseUrls(elements.urlList.value);
   state.mode = sanitizeMode(elements.modeSelect.value);
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
+
+  void saveStateToStorage().catch((error) => {
+    console.error("Failed to save list mode change", error);
+  });
 }
 
 function handleTimerInput() {
