@@ -96,19 +96,17 @@
               </div>
 
               <div class="control-group">
-                <div class="timer-row">
-                  <label for="timer-minutes">Timer duration</label>
-                  <output id="timer-minutes-value" for="timer-minutes">25 min</output>
+                <label for="timer-end-time">Timer</label>
+                <div id="timer-presets" class="timer-presets" aria-label="Timer presets">
+                  <button class="timer-preset-btn" type="button" data-preset-index="0">15m</button>
+                  <button class="timer-preset-btn" type="button" data-preset-index="1">25m</button>
+                  <button class="timer-preset-btn" type="button" data-preset-index="2">45m</button>
+                  <button class="timer-preset-btn" type="button" data-preset-index="3">60m</button>
                 </div>
-                <input
-                  id="timer-minutes"
-                  name="timer-minutes"
-                  type="range"
-                  min="1"
-                  max="180"
-                  step="1"
-                  value="25"
-                />
+                <div class="timer-row">
+                  <label for="timer-end-time">End time (24h)</label>
+                </div>
+                <input id="timer-end-time" name="timer-end-time" type="time" step="60" />
               </div>
             </section>
           </div>

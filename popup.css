@@ -251,6 +251,8 @@ label {
 select,
 textarea,
 input[type="text"]:not(#unlock-phrase-input),
+input[type="time"],
+#timer-presets .timer-preset-btn,
 #unlock-confirm-btn {
   width: 100%;
   border-radius: var(--radius);
@@ -275,6 +277,50 @@ input[type="range"] {
 #unlock-confirm-btn {
   cursor: pointer;
   font-weight: 600;
+}
+
+#timer-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+#timer-presets .timer-preset-btn {
+  padding: 7px 6px;
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+}
+
+#timer-presets .timer-preset-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#timer-presets .timer-preset-btn.is-active {
+  border-color: var(--accent);
+  background: rgba(76, 175, 80, 0.2);
+}
+
+#timer-presets .timer-preset-btn.is-editing {
+  padding: 0;
+}
+
+.timer-preset-editor {
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  text-align: center;
+  padding: 7px 6px;
+}
+
+.timer-preset-editor:focus {
+  outline: none;
 }
 
 #unlock-confirm-btn:disabled {
@@ -391,11 +437,6 @@ input[type="range"] {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-}
-
-#timer-minutes-value {
-  color: var(--text-soft);
-  font-size: 12px;
 }
 
 .is-unlock-pending #unlock-challenge {

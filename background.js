@@ -64,7 +64,7 @@ function clampTimerMinutes(value) {
     return 25;
   }
 
-  return Math.min(180, Math.max(1, Math.round(value)));
+  return Math.min(1440, Math.max(1, Math.round(value)));
 }
 
 function normalizePhrase(value) {

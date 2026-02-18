@@ -110,3 +110,41 @@ When blocking starts, automatically closed forbidden tabs from that initial swee
   - Open at least one forbidden URL, then start blocking and confirm it is auto-closed.
   - Open another forbidden URL during blocking and confirm it is also auto-closed.
   - Unblock (phrase mode success or timer-complete stop) and verify only the initially closed forbidden tabs are restored.
+
+## Addendum: Minimal Timer UX (Presets + End Time)
+
+### Goal
+Replace timer mode switching with a single minimal model:
+- Four preset buttons that are selectable and editable.
+- One always-visible end-time input in 24-hour format.
+
+### Scope
+- Popup settings:
+  - Presets row with 4 buttons.
+  - Single-click preset selects it.
+  - Double-click preset opens inline numeric editor.
+  - Pressing `Enter` commits edited preset value (`1..1440`), invalid values are rejected.
+  - End-time input (`input[type="time"]`) is always visible and uses 24h `HH:MM`.
+- Interaction model:
+  - Preset mode: selected preset is highlighted and end time is derived as `now + preset minutes`.
+  - While popup is open in preset mode, end-time display updates dynamically over time.
+  - Manual end-time edit switches to manual mode; no preset is highlighted.
+- Persistence model:
+  - `timerPresets`: array of 4 integers.
+  - `timerSelectionMode`: `preset | manualEndTime`.
+  - `selectedPresetIndex`: `0..3 | null`.
+  - `manualEndTime`: `HH:MM`.
+  - `timerMinutes` remains the effective derived value used for blocking payload.
+- Backward compatibility:
+  - Read deprecated `timerType` and `timerEndTime` for migration only.
+  - Do not write deprecated keys.
+
+### Verification
+- `node --check popup.js`
+- `node --check background.js`
+- Manual flow:
+  - Single-click a preset and confirm highlight + end-time updates.
+  - Keep popup open and verify end-time keeps moving with clock in preset mode.
+  - Double-click preset, edit value, press `Enter`, verify label updates and persists after reopen.
+  - Enter end time manually and verify preset highlight clears.
+  - Start blocking from preset mode and manual end-time mode; verify `timerMinutes` behaves correctly.

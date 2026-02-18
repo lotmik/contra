@@ -7,6 +7,9 @@ const DEFAULT_HARDCORE_MODE_STATUS = {
   installType: "unknown",
   checkedAt: 0
 };
+const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
+const TIMER_SELECTION_MODE_PRESET = "preset";
+const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
@@ -14,6 +17,13 @@ const STORAGE_KEYS = [
   "whiteList",
   "unlockMode",
   "timerMinutes",
+  "timerPresets",
+  "timerSelectionMode",
+  "selectedPresetIndex",
+  "manualEndTime",
+  // Deprecated keys kept for migration.
+  "timerType",
+  "timerEndTime",
   "unlockPhrase",
   "lockEndTime",
   "timerExpired",
@@ -28,7 +38,11 @@ const state = {
   blockList: [],
   whiteList: [],
   unlockMode: "timer",
-  timerMinutes: 25,
+  timerMinutes: DEFAULT_TIMER_PRESETS[1],
+  timerPresets: [...DEFAULT_TIMER_PRESETS],
+  timerSelectionMode: TIMER_SELECTION_MODE_PRESET,
+  selectedPresetIndex: 1,
+  manualEndTime: getDefaultTimerEndTime(),
   unlockPhrase: DEFAULT_UNLOCK_PHRASE,
   lockEndTime: 0,
   timerExpired: true,
@@ -39,7 +53,9 @@ const state = {
 };
 
 let timerTickId = null;
+let presetEndTimeTickId = null;
 let isUnlockChallengeOpen = false;
+let presetEditState = null;
 
 const elements = {
   body: document.body,
@@ -58,9 +74,10 @@ const elements = {
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
+  timerEndTimeInput: document.getElementById("timer-end-time"),
+  timerPresets: document.getElementById("timer-presets"),
   unlockPhraseSettingInput: document.getElementById("unlock-phrase-setting"),
-  timerMinutesInput: document.getElementById("timer-minutes"),
-  timerMinutesValue: document.getElementById("timer-minutes-value")
+  timerPresetButtons: Array.from(document.querySelectorAll("#timer-presets .timer-preset-btn"))
 };
 
 function sanitizeMode(value) {
@@ -85,10 +102,104 @@ function sanitizeList(value) {
 
 function clampTimerMinutes(value) {
   if (!Number.isFinite(value)) {
-    return 25;
+    return DEFAULT_TIMER_PRESETS[1];
   }
 
-  return Math.min(180, Math.max(1, Math.round(value)));
+  return Math.min(1440, Math.max(1, Math.round(value)));
+}
+
+function sanitizeTimerSelectionMode(value) {
+  return value === TIMER_SELECTION_MODE_MANUAL_END_TIME
+    ? TIMER_SELECTION_MODE_MANUAL_END_TIME
+    : TIMER_SELECTION_MODE_PRESET;
+}
+
+function sanitizeTimerPresets(value) {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_TIMER_PRESETS];
+  }
+
+  const presets = [];
+  for (let index = 0; index < DEFAULT_TIMER_PRESETS.length; index += 1) {
+    const nextValue = value[index];
+    if (Number.isFinite(nextValue)) {
+      presets.push(clampTimerMinutes(Number(nextValue)));
+      continue;
+    }
+
+    presets.push(DEFAULT_TIMER_PRESETS[index]);
+  }
+
+  return presets;
+}
+
+function sanitizeSelectedPresetIndex(value) {
+  if (!Number.isInteger(value)) {
+    return null;
+  }
+
+  if (value < 0 || value >= DEFAULT_TIMER_PRESETS.length) {
+    return null;
+  }
+
+  return value;
+}
+
+function findPresetIndexForMinutes(minutes, presets = state.timerPresets) {
+  const target = clampTimerMinutes(minutes);
+  const index = presets.findIndex((presetMinutes) => presetMinutes === target);
+  return index >= 0 ? index : 1;
+}
+
+function formatTimeOfDay(hours, minutes) {
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function getDefaultTimerEndTime() {
+  const target = new Date(Date.now() + DEFAULT_TIMER_PRESETS[1] * 60 * 1000);
+  return formatTimeOfDay(target.getHours(), target.getMinutes());
+}
+
+function isValidTimeOfDayString(value) {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(value || "").trim());
+}
+
+function sanitizeTimerEndTime(value) {
+  if (!isValidTimeOfDayString(value)) {
+    return getDefaultTimerEndTime();
+  }
+
+  return String(value).trim();
+}
+
+function minutesFromSelectedPreset() {
+  const safeIndex = sanitizeSelectedPresetIndex(state.selectedPresetIndex);
+  const resolvedIndex = safeIndex === null ? 1 : safeIndex;
+  return clampTimerMinutes(state.timerPresets[resolvedIndex]);
+}
+
+function computeEndTimeFromMinutes(minutes, nowMs = Date.now()) {
+  const clampedMinutes = clampTimerMinutes(minutes);
+  const endDate = new Date(nowMs + clampedMinutes * 60 * 1000);
+  return formatTimeOfDay(endDate.getHours(), endDate.getMinutes());
+}
+
+function getMinutesUntilEndTime(timeOfDay, nowMs = Date.now()) {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(String(timeOfDay || "").trim());
+  if (!match) {
+    return DEFAULT_TIMER_PRESETS[1];
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const target = new Date(nowMs);
+  target.setHours(hours, minutes, 0, 0);
+
+  if (target.getTime() <= nowMs) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return Math.ceil((target.getTime() - nowMs) / (60 * 1000));
 }
 
 function normalizePhrase(value) {
@@ -277,8 +388,80 @@ function getPauseRemainingMs() {
   return Math.max(0, (state.pauseUntil || 0) - Date.now());
 }
 
-function updateTimerLabel(minutes) {
-  elements.timerMinutesValue.textContent = `${minutes} min`;
+function updatePresetButtons() {
+  for (const button of elements.timerPresetButtons) {
+    const presetIndex = sanitizeSelectedPresetIndex(Number(button.dataset.presetIndex));
+    if (presetIndex === null) {
+      continue;
+    }
+
+    const presetMinutes = clampTimerMinutes(state.timerPresets[presetIndex]);
+    const isActive =
+      state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET &&
+      state.selectedPresetIndex === presetIndex;
+
+    button.classList.toggle("is-active", isActive);
+    button.dataset.minutes = String(presetMinutes);
+
+    if (!presetEditState || presetEditState.index !== presetIndex) {
+      button.textContent = `${presetMinutes}m`;
+    }
+  }
+}
+
+function updateTimerEndTimeInputFromState() {
+  if (state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET) {
+    if (document.activeElement === elements.timerEndTimeInput) {
+      return;
+    }
+    elements.timerEndTimeInput.value = computeEndTimeFromMinutes(minutesFromSelectedPreset());
+    return;
+  }
+
+  if (isValidTimeOfDayString(state.manualEndTime)) {
+    elements.timerEndTimeInput.value = state.manualEndTime;
+  } else {
+    elements.timerEndTimeInput.value = sanitizeTimerEndTime(state.manualEndTime);
+  }
+}
+
+function stopPresetEndTimeTicker() {
+  if (presetEndTimeTickId !== null) {
+    clearInterval(presetEndTimeTickId);
+    presetEndTimeTickId = null;
+  }
+}
+
+function reconcilePresetEndTimeTicker() {
+  stopPresetEndTimeTicker();
+  if (state.timerSelectionMode !== TIMER_SELECTION_MODE_PRESET) {
+    return;
+  }
+
+  presetEndTimeTickId = window.setInterval(() => {
+    updateTimerEndTimeInputFromState();
+  }, 1000);
+}
+
+function syncTimerControlsFromState() {
+  state.timerSelectionMode = sanitizeTimerSelectionMode(state.timerSelectionMode);
+  state.timerPresets = sanitizeTimerPresets(state.timerPresets);
+  state.selectedPresetIndex = sanitizeSelectedPresetIndex(state.selectedPresetIndex);
+  state.manualEndTime = sanitizeTimerEndTime(state.manualEndTime);
+
+  if (state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET) {
+    if (state.selectedPresetIndex === null) {
+      state.selectedPresetIndex = findPresetIndexForMinutes(state.timerMinutes, state.timerPresets);
+    }
+    state.timerMinutes = minutesFromSelectedPreset();
+  } else {
+    state.selectedPresetIndex = null;
+    state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
+  }
+
+  updatePresetButtons();
+  updateTimerEndTimeInputFromState();
+  reconcilePresetEndTimeTicker();
 }
 
 function updateStatus(text) {
@@ -376,15 +559,20 @@ function syncFormFromState() {
   elements.unlockModeSelect.value = state.unlockMode;
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
   autoResizeUnlockPhraseSettingField();
-  elements.timerMinutesInput.value = String(state.timerMinutes);
-  updateTimerLabel(state.timerMinutes);
+  syncTimerControlsFromState();
 }
 
 function applyFormToState() {
   state.mode = sanitizeMode(elements.modeSelect.value);
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
   state.unlockPhrase = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
-  state.timerMinutes = clampTimerMinutes(Number(elements.timerMinutesInput.value));
+
+  if (state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET) {
+    state.timerMinutes = minutesFromSelectedPreset();
+  } else {
+    state.manualEndTime = sanitizeTimerEndTime(elements.timerEndTimeInput.value);
+    state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
+  }
 
   const parsedUrls = parseUrls(elements.urlList.value);
   if (state.mode === "allow") {
@@ -402,6 +590,10 @@ async function saveStateToStorage() {
     whiteList: state.whiteList,
     unlockMode: state.unlockMode,
     timerMinutes: state.timerMinutes,
+    timerPresets: state.timerPresets,
+    timerSelectionMode: state.timerSelectionMode,
+    selectedPresetIndex: state.selectedPresetIndex,
+    manualEndTime: state.manualEndTime,
     unlockPhrase: state.unlockPhrase,
     lockEndTime: state.lockEndTime,
     timerExpired: state.timerExpired,
@@ -419,7 +611,33 @@ async function loadStateFromStorage() {
   state.blockList = sanitizeList(stored.blockList);
   state.whiteList = sanitizeList(stored.whiteList);
   state.unlockMode = sanitizeUnlockMode(stored.unlockMode);
-  state.timerMinutes = clampTimerMinutes(Number(stored.timerMinutes));
+
+  const storedTimerMinutes = clampTimerMinutes(Number(stored.timerMinutes));
+  state.timerPresets = sanitizeTimerPresets(stored.timerPresets);
+
+  const migratedSelectionMode =
+    stored.timerType === "endTime" ? TIMER_SELECTION_MODE_MANUAL_END_TIME : TIMER_SELECTION_MODE_PRESET;
+  state.timerSelectionMode = sanitizeTimerSelectionMode(stored.timerSelectionMode ?? migratedSelectionMode);
+
+  const fallbackPresetIndex = findPresetIndexForMinutes(storedTimerMinutes, state.timerPresets);
+  state.selectedPresetIndex = sanitizeSelectedPresetIndex(stored.selectedPresetIndex);
+  if (state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET && state.selectedPresetIndex === null) {
+    state.selectedPresetIndex = fallbackPresetIndex;
+  }
+
+  const migratedManualEndTime =
+    typeof stored.timerEndTime === "string"
+      ? sanitizeTimerEndTime(stored.timerEndTime)
+      : computeEndTimeFromMinutes(state.timerPresets[fallbackPresetIndex]);
+  state.manualEndTime = sanitizeTimerEndTime(stored.manualEndTime ?? migratedManualEndTime);
+
+  if (state.timerSelectionMode === TIMER_SELECTION_MODE_PRESET) {
+    state.timerMinutes = minutesFromSelectedPreset();
+  } else {
+    state.selectedPresetIndex = null;
+    state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
+  }
+
   state.unlockPhrase =
     typeof stored.unlockPhrase === "string"
       ? sanitizeUnlockPhrase(stored.unlockPhrase)
@@ -715,9 +933,138 @@ function handleModeChange() {
   });
 }
 
-function handleTimerInput() {
-  state.timerMinutes = clampTimerMinutes(Number(elements.timerMinutesInput.value));
-  updateTimerLabel(state.timerMinutes);
+function persistTimerSettings(errorLabel) {
+  void saveStateToStorage().catch((error) => {
+    console.error(errorLabel, error);
+  });
+}
+
+function selectTimerPreset(index) {
+  const presetIndex = sanitizeSelectedPresetIndex(index);
+  if (presetIndex === null) {
+    return;
+  }
+
+  state.timerSelectionMode = TIMER_SELECTION_MODE_PRESET;
+  state.selectedPresetIndex = presetIndex;
+  state.timerMinutes = minutesFromSelectedPreset();
+  syncTimerControlsFromState();
+  persistTimerSettings("Failed to save timer preset");
+}
+
+function stopPresetEditing(commit) {
+  if (!presetEditState) {
+    return;
+  }
+
+  const { index, button, input } = presetEditState;
+  const parsedMinutes = Number(input.value);
+  const isValidMinutes = Number.isInteger(parsedMinutes) && parsedMinutes >= 1 && parsedMinutes <= 1440;
+  const shouldApply = commit === true && isValidMinutes;
+
+  presetEditState = null;
+  button.classList.remove("is-editing");
+  button.replaceChildren();
+
+  if (shouldApply) {
+    state.timerPresets[index] = clampTimerMinutes(parsedMinutes);
+    state.timerSelectionMode = TIMER_SELECTION_MODE_PRESET;
+    state.selectedPresetIndex = index;
+  }
+
+  syncTimerControlsFromState();
+  if (shouldApply) {
+    persistTimerSettings("Failed to save edited timer preset");
+  }
+}
+
+function beginPresetEditing(index, button) {
+  const presetIndex = sanitizeSelectedPresetIndex(index);
+  if (presetIndex === null) {
+    return;
+  }
+
+  if (presetEditState) {
+    stopPresetEditing(false);
+  }
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.className = "timer-preset-editor";
+  input.value = String(clampTimerMinutes(state.timerPresets[presetIndex]));
+
+  button.classList.add("is-editing");
+  button.replaceChildren(input);
+  presetEditState = { index: presetIndex, button, input };
+
+  input.addEventListener("input", () => {
+    input.value = input.value.replace(/[^\d]/g, "");
+  });
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      stopPresetEditing(true);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      stopPresetEditing(false);
+    }
+  });
+  input.addEventListener("blur", () => {
+    stopPresetEditing(false);
+  });
+
+  input.focus();
+  input.select();
+}
+
+function handleTimerPresetClick(event) {
+  const presetButton = event.target.closest("[data-preset-index]");
+  if (!presetButton) {
+    return;
+  }
+
+  if (presetEditState) {
+    return;
+  }
+
+  selectTimerPreset(Number(presetButton.dataset.presetIndex));
+}
+
+function handleTimerPresetDoubleClick(event) {
+  const presetButton = event.target.closest("[data-preset-index]");
+  if (!presetButton) {
+    return;
+  }
+
+  beginPresetEditing(Number(presetButton.dataset.presetIndex), presetButton);
+}
+
+function handleTimerEndTimeInput() {
+  const rawValue = String(elements.timerEndTimeInput.value || "").trim();
+  if (!isValidTimeOfDayString(rawValue)) {
+    return;
+  }
+
+  state.manualEndTime = rawValue;
+  state.timerSelectionMode = TIMER_SELECTION_MODE_MANUAL_END_TIME;
+  state.selectedPresetIndex = null;
+  state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
+  syncTimerControlsFromState();
+  persistTimerSettings("Failed to save timer end time");
+}
+
+function handleTimerEndTimeChange() {
+  state.manualEndTime = sanitizeTimerEndTime(elements.timerEndTimeInput.value);
+  state.timerSelectionMode = TIMER_SELECTION_MODE_MANUAL_END_TIME;
+  state.selectedPresetIndex = null;
+  state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
+  syncTimerControlsFromState();
+  persistTimerSettings("Failed to save timer end time");
 }
 
 function handleUnlockModeChange() {
@@ -869,12 +1216,21 @@ async function initializePopup() {
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
   elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingInput);
-  elements.timerMinutesInput.addEventListener("input", handleTimerInput);
+  elements.timerEndTimeInput.addEventListener("input", handleTimerEndTimeInput);
+  elements.timerEndTimeInput.addEventListener("change", handleTimerEndTimeChange);
+  elements.timerPresets.addEventListener("click", handleTimerPresetClick);
+  elements.timerPresets.addEventListener("dblclick", handleTimerPresetDoubleClick);
   elements.unlockPhraseInput.addEventListener("input", handlePhraseInput);
   elements.unlockPhraseInput.addEventListener("keydown", handleUnlockPhraseKeydown);
   elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
   elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
   window.addEventListener("resize", renderPhraseTypingPreview);
+  window.addEventListener("beforeunload", () => {
+    stopPresetEndTimeTicker();
+    if (presetEditState) {
+      stopPresetEditing(false);
+    }
+  });
 
   browser.storage.onChanged.addListener(handleStorageChanged);
   browser.runtime.onMessage.addListener(handleRuntimeMessage);
