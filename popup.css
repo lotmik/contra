@@ -98,24 +98,11 @@ header,
   border-color: rgba(224, 124, 124, 0.5);
 }
 
-.install-type-detail {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-soft);
-  text-align: center;
-}
-
 .power-section {
   width: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
-}
-
-.test-controls {
-  width: 100%;
-  display: flex;
-  justify-content: center;
 }
 
 #power-toggle {
@@ -397,19 +384,6 @@ input[type="range"] {
   100% {
     opacity: 0;
   }
-}
-
-#test-disable-btn {
-  width: 100%;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: #3a3a3a;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 8px;
-  cursor: pointer;
 }
 
 .timer-row {

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "contra.",
   "version": "0.2.0",
-  "description": "Gain control over your internet life.",
+  "description": "Go deep, control your life.",
   "permissions": [
     "tabs",
     "storage",
@@ -24,14 +24,18 @@
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
-      "96": "icons/icon-96.png"
+      "64": "icons/icon-64.png",
+      "96": "icons/icon-96.png",
+      "128": "icons/icon-128.png"
     }
   },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
-    "96": "icons/icon-96.png"
+    "64": "icons/icon-64.png",
+    "96": "icons/icon-96.png",
+    "128": "icons/icon-128.png"
   },
   "browser_specific_settings": {
     "gecko": {

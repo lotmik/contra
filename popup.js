@@ -45,7 +45,6 @@ const elements = {
   body: document.body,
   statusArea: document.getElementById("status-area"),
   hardcoreModeBadge: document.getElementById("hardcore-mode-badge"),
-  installTypeDetail: document.getElementById("install-type-detail"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
@@ -54,7 +53,6 @@ const elements = {
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
   unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
-  testDisableButton: document.getElementById("test-disable-btn"),
   settingsBlurWrap: document.getElementById("settings-blur-wrap"),
   settingsArea: document.getElementById("settings-area"),
   modeSelect: document.getElementById("mode-select"),
@@ -279,10 +277,6 @@ function getPauseRemainingMs() {
   return Math.max(0, (state.pauseUntil || 0) - Date.now());
 }
 
-function getTestDisableRemainingMs() {
-  return Math.max(0, (state.testDisableUntil || 0) - Date.now());
-}
-
 function updateTimerLabel(minutes) {
   elements.timerMinutesValue.textContent = `${minutes} min`;
 }
@@ -301,17 +295,8 @@ function normalizeHardcoreModeStatus(status = {}) {
   };
 }
 
-function getInstallTypeLabel(installType) {
-  if (typeof installType !== "string" || installType.trim().length === 0) {
-    return "unknown";
-  }
-
-  return installType;
-}
-
 function renderHardcoreModeStatus() {
   const isActive = state.hardcoreModeStatus.active;
-  const installTypeLabel = getInstallTypeLabel(state.hardcoreModeStatus.installType);
   const classList = elements.hardcoreModeBadge.classList;
   classList.remove("is-active", "is-inactive");
 
@@ -322,18 +307,6 @@ function renderHardcoreModeStatus() {
     classList.add("is-inactive");
     elements.hardcoreModeBadge.textContent = "Hardcore mode: off";
   }
-
-  elements.installTypeDetail.textContent = `Installation type detected: ${installTypeLabel}`;
-}
-
-function updateTestDisableButton() {
-  const remaining = getTestDisableRemainingMs();
-  if (remaining > 0) {
-    elements.testDisableButton.textContent = `Testing disabled ${formatDuration(remaining)}`;
-    return;
-  }
-
-  elements.testDisableButton.textContent = "Temporary Disable (60s)";
 }
 
 function setChallengeVisibility(isVisible) {
@@ -460,7 +433,6 @@ async function loadStateFromStorage() {
 }
 
 function updateLockedChallenge() {
-  updateTestDisableButton();
   renderPhraseTypingPreview();
 
   const isTimerMode = state.unlockMode === "timer";
@@ -537,7 +509,6 @@ function renderUi() {
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
     : "Start blocking";
-  updateTestDisableButton();
 
   if (state.isBlocking) {
     if (state.unlockMode === "timer" && state.timerExpired) {
@@ -681,31 +652,6 @@ async function requestPausePositive() {
   } catch (error) {
     updateStatus("Could not start pause");
     console.error("REQUEST_PAUSE_POSITIVE failed", error);
-  }
-}
-
-async function handleTestDisableClick() {
-  try {
-    const response = await browser.runtime.sendMessage({
-      type: "TEMP_DISABLE_FOR_TEST",
-      payload: { durationSeconds: 60 }
-    });
-
-    if (!response || response.ok !== true) {
-      updateStatus("Could not enable test bypass");
-      return;
-    }
-
-    if (Number.isFinite(response.testDisableUntil)) {
-      state.testDisableUntil = response.testDisableUntil;
-      await saveStateToStorage();
-    }
-
-    updateStatus("Test bypass active (60s)");
-    renderUi();
-  } catch (error) {
-    updateStatus("Could not enable test bypass");
-    console.error("TEMP_DISABLE_FOR_TEST failed", error);
   }
 }
 
@@ -912,9 +858,6 @@ async function initializePopup() {
   });
   elements.unlockConfirmButton.addEventListener("click", () => {
     void handleUnlockConfirmClick();
-  });
-  elements.testDisableButton.addEventListener("click", () => {
-    void handleTestDisableClick();
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
