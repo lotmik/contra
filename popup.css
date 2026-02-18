@@ -323,7 +323,8 @@ input[type="range"] {
 }
 
 #unlock-phrase-display {
-  min-height: 72px;
+  position: relative;
+  min-height: 84px;
   width: 100%;
   border-radius: var(--radius);
   border: 1px solid #4a4d52;
@@ -334,9 +335,29 @@ input[type="range"] {
   font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  overflow-x: hidden;
   user-select: none;
   pointer-events: none;
+}
+
+#unlock-phrase-caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  border-left: 2px solid #d1d0c5;
+  pointer-events: none;
+  animation: typing-caret-blink 1s step-end infinite;
+  z-index: 3;
+}
+
+#unlock-phrase-setting {
+  min-height: 52px;
+  line-height: 1.35;
+  resize: none;
+  overflow-y: hidden;
 }
 
 #unlock-phrase-display.is-focus-visible {
@@ -344,7 +365,7 @@ input[type="range"] {
 }
 
 .typing-char {
-  white-space: pre;
+  white-space: normal;
 }
 
 .typing-char.pending {
@@ -365,15 +386,6 @@ input[type="range"] {
 .typing-char.extra {
   color: #7e2a33;
   opacity: 1;
-}
-
-.typing-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.1em;
-  background: #d1d0c5;
-  vertical-align: text-bottom;
-  animation: typing-caret-blink 1s step-end infinite;
 }
 
 @keyframes typing-caret-blink {

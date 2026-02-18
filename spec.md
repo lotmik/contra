@@ -81,7 +81,7 @@ Make unlock/pause phrase entry visibly guided and deterministic:
 Allow users to define the unlock/pause phrase directly in popup settings.
 
 ### Scope
-- Add a settings text input for unlock phrase configuration.
+- Add a settings multiline textarea for unlock phrase configuration with auto-grow behavior.
 - Persist configured phrase to extension local storage.
 - Use configured phrase in challenge rendering and phrase validation.
 - Normalize phrase by trimming and collapsing spaces; fallback to default if empty.
@@ -92,3 +92,21 @@ Allow users to define the unlock/pause phrase directly in popup settings.
   - Changing phrase in Settings persists after popup reopen.
   - Lock challenge displays the configured phrase.
   - Confirm remains locked until the configured phrase is typed correctly.
+
+## Addendum: Restore Initially Closed Forbidden Tabs
+
+### Goal
+When blocking starts, automatically closed forbidden tabs from that initial sweep should be reopened after a successful unblock.
+
+### Scope
+- Capture only forbidden tabs that were already open at the moment `START_BLOCKING` runs.
+- Do not capture tabs opened (and auto-closed) later during active blocking.
+- Persist startup-captured tab snapshots in local storage so recovery survives worker restarts.
+- On `STOP_BLOCKING`, restore startup-captured tabs best-effort, then clear recovery state.
+
+### Verification
+- `node --check background.js`
+- Manual flow:
+  - Open at least one forbidden URL, then start blocking and confirm it is auto-closed.
+  - Open another forbidden URL during blocking and confirm it is also auto-closed.
+  - Unblock (phrase mode success or timer-complete stop) and verify only the initially closed forbidden tabs are restored.

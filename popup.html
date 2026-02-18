@@ -49,6 +49,7 @@
               id="unlock-phrase-display"
               aria-label="Type unlock phrase"
             ></div>
+            <span id="unlock-phrase-caret" aria-hidden="true"></span>
           </div>
           <button id="unlock-confirm-btn" type="button">Confirm</button>
         </div>
@@ -92,16 +93,13 @@
 
               <div class="control-group">
                 <label for="unlock-phrase-setting">Unlock phrase</label>
-                <input
+                <textarea
                   id="unlock-phrase-setting"
                   name="unlock-phrase-setting"
-                  type="text"
-                  autocomplete="off"
-                  autocapitalize="off"
-                  autocorrect="off"
+                  rows="2"
                   spellcheck="false"
-                  placeholder="I swear to god I will focus"
-                />
+                  placeholder="I swear to God and to my future self that I don't want to ruin my cognitive abilities"
+                ></textarea>
               </div>
 
               <div class="control-group">

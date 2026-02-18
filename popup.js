@@ -39,6 +39,7 @@ const state = {
 };
 
 let timerTickId = null;
+let isUnlockChallengeOpen = false;
 
 const elements = {
   body: document.body,
@@ -51,6 +52,7 @@ const elements = {
   unlockPhraseLabel: document.querySelector('label[for="unlock-phrase-input"]'),
   unlockPhraseInput: document.getElementById("unlock-phrase-input"),
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
+  unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
   testDisableButton: document.getElementById("test-disable-btn"),
   settingsBlurWrap: document.getElementById("settings-blur-wrap"),
@@ -94,8 +96,7 @@ function clampTimerMinutes(value) {
 function normalizePhrase(value) {
   return String(value || "")
     .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+    .replace(/\s+/g, " ");
 }
 
 function sanitizeUnlockPhrase(value) {
@@ -103,6 +104,16 @@ function sanitizeUnlockPhrase(value) {
     .trim()
     .replace(/\s+/g, " ");
   return normalized.length > 0 ? normalized : DEFAULT_UNLOCK_PHRASE;
+}
+
+function autoResizeUnlockPhraseSettingField() {
+  const field = elements.unlockPhraseSettingInput;
+  if (!field) {
+    return;
+  }
+
+  field.style.height = "auto";
+  field.style.height = `${Math.max(field.scrollHeight, 52)}px`;
 }
 
 function getReferencePhraseForTyping() {
@@ -116,21 +127,50 @@ function sanitizeTypedPhraseInput(value) {
 }
 
 function charsMatchAtIndex(referenceChar, typedChar) {
-  return String(referenceChar).toLowerCase() === String(typedChar).toLowerCase();
+  return String(referenceChar) === String(typedChar);
 }
 
-function appendTypingCharacter(fragment, character, variant) {
+function appendTypingCharacter(fragment, character, variant, startOffset) {
   const span = document.createElement("span");
   span.className = `typing-char ${variant}`;
   span.textContent = character;
+  span.dataset.start = String(startOffset);
+  span.dataset.end = String(startOffset + character.length);
   fragment.appendChild(span);
 }
 
-function appendTypingCaret(fragment) {
-  const caret = document.createElement("span");
-  caret.className = "typing-caret";
-  caret.setAttribute("aria-hidden", "true");
-  fragment.appendChild(caret);
+function updateTypingCaretPosition(caretBoundaryOffset) {
+  const display = elements.unlockPhraseDisplay;
+  const caret = elements.unlockPhraseCaret;
+  if (!display || !caret || display.hidden || elements.unlockPhraseInput.hidden) {
+    if (caret) {
+      caret.hidden = true;
+    }
+    return;
+  }
+
+  const firstAtBoundary = display.querySelector(`.typing-char[data-start="${caretBoundaryOffset}"]`);
+  const prevAtBoundary = display.querySelector(`.typing-char[data-end="${caretBoundaryOffset}"]`);
+  const sourceChar =
+    firstAtBoundary ||
+    prevAtBoundary ||
+    display.querySelector(".typing-char:last-of-type");
+
+  if (!sourceChar) {
+    caret.hidden = true;
+    return;
+  }
+
+  const displayRect = display.getBoundingClientRect();
+  const charRect = sourceChar.getBoundingClientRect();
+  const isBeforeChar = Boolean(firstAtBoundary);
+  const left = isBeforeChar ? charRect.left - displayRect.left : charRect.right - displayRect.left;
+  const top = charRect.top - displayRect.top;
+  const lineHeight = charRect.height || parseFloat(getComputedStyle(display).lineHeight) || 20;
+
+  caret.hidden = false;
+  caret.style.transform = `translate(${left}px, ${top}px)`;
+  caret.style.height = `${lineHeight}px`;
 }
 
 function renderPhraseTypingPreview() {
@@ -147,6 +187,8 @@ function renderPhraseTypingPreview() {
   const caretWordIndex = Math.max(0, inputWords.length - 1);
   const caretCharIndex = inputWords[caretWordIndex]?.length || 0;
   const fragment = document.createDocumentFragment();
+  let renderedOffset = 0;
+  let caretBoundaryOffset = 0;
 
   for (let wordIndex = 0; wordIndex < totalWords; wordIndex += 1) {
     const referenceWord = referenceWords[wordIndex] || "";
@@ -158,31 +200,34 @@ function renderPhraseTypingPreview() {
 
     for (let charIndex = 0; charIndex < referenceWord.length; charIndex += 1) {
       if (isCaretWord && clampedCaretIndex === charIndex) {
-        appendTypingCaret(fragment);
+        caretBoundaryOffset = renderedOffset;
       }
 
       const referenceChar = referenceWord[charIndex];
       const typedChar = inputWord[charIndex];
       if (typedChar === undefined) {
-        appendTypingCharacter(fragment, referenceChar, "pending");
+        appendTypingCharacter(fragment, referenceChar, "pending", renderedOffset);
       } else if (charsMatchAtIndex(referenceChar, typedChar)) {
-        appendTypingCharacter(fragment, referenceChar, "correct");
+        appendTypingCharacter(fragment, referenceChar, "correct", renderedOffset);
       } else {
-        appendTypingCharacter(fragment, referenceChar, "incorrect");
+        appendTypingCharacter(fragment, referenceChar, "incorrect", renderedOffset);
       }
+
+      renderedOffset += 1;
     }
 
     for (let overflowIndex = 0; overflowIndex < overflowWord.length; overflowIndex += 1) {
       const charPosition = referenceWord.length + overflowIndex;
       if (isCaretWord && clampedCaretIndex === charPosition) {
-        appendTypingCaret(fragment);
+        caretBoundaryOffset = renderedOffset;
       }
 
-      appendTypingCharacter(fragment, overflowWord[overflowIndex], "extra");
+      appendTypingCharacter(fragment, overflowWord[overflowIndex], "extra", renderedOffset);
+      renderedOffset += 1;
     }
 
     if (isCaretWord && clampedCaretIndex === totalVisibleWordLength) {
-      appendTypingCaret(fragment);
+      caretBoundaryOffset = renderedOffset;
     }
 
     if (wordIndex < totalWords - 1) {
@@ -193,11 +238,13 @@ function renderPhraseTypingPreview() {
         spaceVariant = hasReferenceSpaceAfterWord ? "correct" : "extra";
       }
 
-      appendTypingCharacter(fragment, " ", spaceVariant);
+      appendTypingCharacter(fragment, " ", spaceVariant, renderedOffset);
+      renderedOffset += 1;
     }
   }
 
   display.replaceChildren(fragment);
+  updateTypingCaretPosition(caretBoundaryOffset);
 }
 
 function setUnlockConfirmButtonState({ disabled, phraseLocked }) {
@@ -292,6 +339,9 @@ function updateTestDisableButton() {
 function setChallengeVisibility(isVisible) {
   elements.body.classList.toggle("is-unlock-pending", isVisible);
   elements.unlockChallenge.setAttribute("aria-hidden", String(!isVisible));
+  if (!isVisible) {
+    elements.unlockPhraseInput.blur();
+  }
 }
 
 function setSettingsBlur(isBlurred) {
@@ -314,11 +364,45 @@ function setPhraseControls({ visible, label, disabled }) {
   renderPhraseTypingPreview();
 }
 
+function focusUnlockControl() {
+  window.requestAnimationFrame(() => {
+    if (!state.isBlocking || !isUnlockChallengeOpen) {
+      return;
+    }
+
+    const canType =
+      !elements.unlockPhraseInput.hidden &&
+      !elements.unlockPhraseInput.disabled &&
+      elements.unlockPhraseInput.offsetParent !== null;
+
+    if (canType) {
+      elements.unlockPhraseInput.focus();
+      return;
+    }
+
+    if (!elements.unlockConfirmButton.disabled && elements.unlockConfirmButton.offsetParent !== null) {
+      elements.unlockConfirmButton.focus();
+    }
+  });
+}
+
+function openUnlockChallenge() {
+  if (!state.isBlocking) {
+    return;
+  }
+
+  isUnlockChallengeOpen = true;
+  setChallengeVisibility(true);
+  updateLockedChallenge();
+  focusUnlockControl();
+}
+
 function syncFormFromState() {
   elements.modeSelect.value = state.mode;
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
   elements.unlockModeSelect.value = state.unlockMode;
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
+  autoResizeUnlockPhraseSettingField();
   elements.timerMinutesInput.value = String(state.timerMinutes);
   updateTimerLabel(state.timerMinutes);
 }
@@ -395,8 +479,8 @@ function updateLockedChallenge() {
 
     if (state.timerExpired) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-      setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
-      elements.unlockConfirmButton.textContent = "Stop";
+      setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
+      elements.unlockConfirmButton.textContent = "Confirm";
       updateStatus("Timer complete");
       return;
     }
@@ -456,8 +540,11 @@ function renderUi() {
   updateTestDisableButton();
 
   if (state.isBlocking) {
+    if (state.unlockMode === "timer" && state.timerExpired) {
+      isUnlockChallengeOpen = false;
+    }
     setSettingsBlur(true);
-    setChallengeVisibility(true);
+    setChallengeVisibility(isUnlockChallengeOpen);
     updateLockedChallenge();
     startTimerTick();
     return;
@@ -465,6 +552,7 @@ function renderUi() {
 
   stopTimerTick();
   setSettingsBlur(false);
+  isUnlockChallengeOpen = false;
   setChallengeVisibility(false);
   elements.unlockPhraseInput.value = "";
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
@@ -544,6 +632,7 @@ async function stopBlocking() {
       } else {
         updateStatus("Could not stop blocking");
       }
+      elements.powerToggle.checked = state.isBlocking;
       return;
     }
 
@@ -555,6 +644,7 @@ async function stopBlocking() {
     renderUi();
   } catch (error) {
     updateStatus("Could not stop blocking");
+    elements.powerToggle.checked = state.isBlocking;
     console.error("STOP_BLOCKING failed", error);
   }
 }
@@ -626,9 +716,13 @@ async function handlePowerToggleChange() {
   }
 
   if (state.isBlocking && !elements.powerToggle.checked) {
+    if (state.unlockMode === "timer" && state.timerExpired) {
+      await stopBlocking();
+      return;
+    }
+
     elements.powerToggle.checked = true;
-    setChallengeVisibility(true);
-    updateLockedChallenge();
+    openUnlockChallenge();
     return;
   }
 
@@ -689,11 +783,16 @@ function handleUnlockPhraseSettingInput() {
     elements.unlockPhraseSettingInput.value = sanitized;
   }
 
+  autoResizeUnlockPhraseSettingField();
   state.unlockPhrase = sanitized;
   renderPhraseTypingPreview();
   void saveStateToStorage().catch((error) => {
     console.error("Failed to save unlock phrase", error);
   });
+}
+
+function handleUnlockPhraseSettingTyping() {
+  autoResizeUnlockPhraseSettingField();
 }
 
 function handlePhraseInput() {
@@ -716,6 +815,25 @@ function handlePhraseInputFocus() {
 
 function handlePhraseInputBlur() {
   elements.unlockPhraseDisplay.classList.remove("is-focus-visible");
+}
+
+function handleUnlockPhraseKeydown(event) {
+  if (event.key !== "Enter") {
+    return;
+  }
+
+  const canSubmit =
+    state.isBlocking &&
+    !elements.unlockConfirmButton.disabled &&
+    !elements.unlockConfirmButton.classList.contains("is-phrase-locked") &&
+    elements.unlockConfirmButton.offsetParent !== null;
+
+  if (!canSubmit) {
+    return;
+  }
+
+  event.preventDefault();
+  void handleUnlockConfirmClick();
 }
 
 async function refreshHardcoreModeStatus(forceRefresh = false) {
@@ -800,12 +918,15 @@ async function initializePopup() {
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
+  elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
   elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingInput);
   elements.timerMinutesInput.addEventListener("input", handleTimerInput);
   elements.unlockPhraseInput.addEventListener("input", handlePhraseInput);
+  elements.unlockPhraseInput.addEventListener("keydown", handleUnlockPhraseKeydown);
   elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
   elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
+  window.addEventListener("resize", renderPhraseTypingPreview);
 
   browser.storage.onChanged.addListener(handleStorageChanged);
   browser.runtime.onMessage.addListener(handleRuntimeMessage);

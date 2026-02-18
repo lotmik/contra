@@ -10,6 +10,7 @@ let timerExpired = true;
 let pausePositiveEnabled = true;
 let pauseUntil = 0;
 let testDisableUntil = 0;
+let recoverableClosedTabs = [];
 let aggressiveTamperIntervalId = null;
 let managedLockStatus = {
   active: false,
@@ -36,6 +37,7 @@ const ALARM_PAUSE_POSITIVE = "pausePositiveResume";
 const ALARM_TEST_DISABLE = "testDisableResume";
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
 const AGGRESSIVE_TAMPER_INTERVAL_MS = 100;
+const MAX_RECOVERABLE_CLOSED_TABS = 200;
 
 function sanitizeList(value) {
   if (!Array.isArray(value)) {
@@ -70,6 +72,36 @@ function normalizePhrase(value) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+}
+
+function sanitizeRecoverableClosedTabs(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const sanitized = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const url = typeof item.url === "string" ? item.url.trim() : "";
+    if (url.length === 0) {
+      continue;
+    }
+
+    sanitized.push({
+      url,
+      windowId: Number.isInteger(item.windowId) ? item.windowId : null,
+      index: Number.isInteger(item.index) ? Math.max(0, item.index) : null
+    });
+
+    if (sanitized.length >= MAX_RECOVERABLE_CLOSED_TABS) {
+      break;
+    }
+  }
+
+  return sanitized;
 }
 
 function isTamperUrl(url) {
@@ -178,6 +210,120 @@ async function sendPopupMessage(message) {
   }
 }
 
+function getTabUrl(tab) {
+  if (!tab || typeof tab !== "object") {
+    return "";
+  }
+
+  const pendingUrl = typeof tab.pendingUrl === "string" ? tab.pendingUrl.trim() : "";
+  if (pendingUrl.length > 0) {
+    return pendingUrl;
+  }
+
+  const stableUrl = typeof tab.url === "string" ? tab.url.trim() : "";
+  return stableUrl;
+}
+
+function createRecoverableClosedTabSnapshot(tab, url) {
+  if (typeof url !== "string" || url.length === 0) {
+    return null;
+  }
+
+  return {
+    url,
+    windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null,
+    index: Number.isInteger(tab?.index) ? Math.max(0, tab.index) : null
+  };
+}
+
+async function restoreRecoverableClosedTabs() {
+  try {
+    if (!Array.isArray(recoverableClosedTabs) || recoverableClosedTabs.length === 0) {
+      return 0;
+    }
+
+    const tabs = sanitizeRecoverableClosedTabs(recoverableClosedTabs);
+    if (tabs.length === 0) {
+      return 0;
+    }
+
+    const currentlyOpenTabs = await browser.tabs.query({});
+    const openCountsByUrl = new Map();
+    for (const tab of currentlyOpenTabs) {
+      const url = getTabUrl(tab);
+      if (!url) {
+        continue;
+      }
+
+      openCountsByUrl.set(url, (openCountsByUrl.get(url) || 0) + 1);
+    }
+
+    const missingCountsByUrl = new Map();
+    for (const tab of tabs) {
+      missingCountsByUrl.set(tab.url, (missingCountsByUrl.get(tab.url) || 0) + 1);
+    }
+
+    for (const [url, openCount] of openCountsByUrl) {
+      if (!missingCountsByUrl.has(url)) {
+        continue;
+      }
+
+      const missingCount = Math.max(0, (missingCountsByUrl.get(url) || 0) - openCount);
+      missingCountsByUrl.set(url, missingCount);
+    }
+
+    const orderedTabs = [...tabs].sort((left, right) => {
+      if (left.windowId !== right.windowId) {
+        return (left.windowId || 0) - (right.windowId || 0);
+      }
+
+      return (left.index || 0) - (right.index || 0);
+    });
+
+    let restoredCount = 0;
+    for (const tab of orderedTabs) {
+      const missingForUrl = missingCountsByUrl.get(tab.url) || 0;
+      if (missingForUrl <= 0) {
+        continue;
+      }
+
+      missingCountsByUrl.set(tab.url, missingForUrl - 1);
+
+      const createProperties = {
+        url: tab.url,
+        active: false
+      };
+
+      if (Number.isInteger(tab.windowId)) {
+        createProperties.windowId = tab.windowId;
+      }
+
+      if (Number.isInteger(tab.index) && Number.isInteger(tab.windowId)) {
+        createProperties.index = tab.index;
+      }
+
+      try {
+        await browser.tabs.create(createProperties);
+        restoredCount += 1;
+        continue;
+      } catch {
+        // Fall through to a simplified restore attempt.
+      }
+
+      try {
+        await browser.tabs.create({ url: tab.url, active: false });
+        restoredCount += 1;
+      } catch {
+        // Ignore if the browser rejects restoring a specific URL.
+      }
+    }
+
+    return restoredCount;
+  } catch {
+    return 0;
+  }
+}
+
 async function checkAndCloseTab(tabId, url) {
   if (!shouldEnforceBlocking()) {
     return;
@@ -250,7 +396,8 @@ async function persistState() {
     timerExpired,
     pausePositiveEnabled,
     pauseUntil,
-    testDisableUntil
+    testDisableUntil,
+    recoverableClosedTabs
   });
 }
 
@@ -298,7 +445,8 @@ async function loadState() {
     "timerExpired",
     "pausePositiveEnabled",
     "pauseUntil",
-    "testDisableUntil"
+    "testDisableUntil",
+    "recoverableClosedTabs"
   ]);
 
   if (typeof stored.isBlocking === "boolean") {
@@ -348,11 +496,58 @@ async function loadState() {
   if (Number.isFinite(stored.testDisableUntil)) {
     testDisableUntil = stored.testDisableUntil;
   }
+
+  if (stored.recoverableClosedTabs !== undefined) {
+    recoverableClosedTabs = sanitizeRecoverableClosedTabs(stored.recoverableClosedTabs);
+  }
+
+  if (!isBlocking && recoverableClosedTabs.length > 0) {
+    recoverableClosedTabs = [];
+  }
 }
 
 async function enforceAllOpenTabs() {
   const tabs = await browser.tabs.query({});
-  await Promise.all(tabs.map((tab) => checkAndCloseTab(tab.id, tab.url)));
+  await Promise.all(
+    tabs.map((tab) => {
+      const url = getTabUrl(tab);
+      return checkAndCloseTab(tab.id, url);
+    })
+  );
+}
+
+async function enforceAllOpenTabsAtSessionStart() {
+  const initialClosedTabs = [];
+  try {
+    const tabs = await browser.tabs.query({});
+    await Promise.all(
+      tabs.map(async (tab) => {
+        const tabId = tab.id;
+        const url = getTabUrl(tab);
+        if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
+          return;
+        }
+
+        if (!isTamperUrl(url) && !isViolation(url)) {
+          return;
+        }
+
+        if (isViolation(url)) {
+          const snapshot = createRecoverableClosedTabSnapshot(tab, url);
+          if (snapshot) {
+            initialClosedTabs.push(snapshot);
+          }
+        }
+
+        await removeTabSafely(tabId);
+      })
+    );
+  } catch {
+    // Keep blocking active even if a startup sweep fails unexpectedly.
+  }
+
+  recoverableClosedTabs = sanitizeRecoverableClosedTabs(initialClosedTabs);
+  await persistState();
 }
 
 async function setupUnlockTimerAlarm() {
@@ -403,9 +598,10 @@ async function startBlockingSession(payload = {}) {
     await browser.alarms.clear(ALARM_UNLOCK_TIMER);
   }
 
+  recoverableClosedTabs = [];
   await persistState();
   reconcileAggressiveTamperMonitor();
-  await enforceAllOpenTabs();
+  await enforceAllOpenTabsAtSessionStart();
 
   return {
     ok: true,
@@ -431,10 +627,13 @@ async function stopBlockingSession() {
   await browser.alarms.clear(ALARM_UNLOCK_TIMER);
   await browser.alarms.clear(ALARM_PAUSE_POSITIVE);
   await browser.alarms.clear(ALARM_TEST_DISABLE);
+
+  const restoredTabs = await restoreRecoverableClosedTabs();
+  recoverableClosedTabs = [];
   await persistState();
   reconcileAggressiveTamperMonitor();
 
-  return { ok: true };
+  return { ok: true, restoredTabs };
 }
 
 async function startPausePositiveSession(payload = {}) {

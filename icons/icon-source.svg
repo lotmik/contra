@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048" role="img" aria-label="contra icon">
+  <circle cx="1024" cy="1024" r="1024" fill="#c8c8cb" />
+  <circle cx="1024" cy="1024" r="420" fill="none" stroke="#000000" stroke-width="160" />
+  <rect x="1268" y="820" width="520" height="408" fill="#c8c8cb" />
+  <circle cx="1365" cy="1024" r="122" fill="#000000" />
+</svg>
