@@ -39,3 +39,56 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 - `bash -n scripts/dev-local-firefox.sh`
 - `scripts/build-xpi.sh` successful
 - `scripts/verify-firefox-policy.sh` run (expected warnings/failures before sudo install are acceptable in dev state)
+
+## Addendum: Phrase Typing UX (Monkeytype-style)
+
+### Goal
+Make unlock/pause phrase entry visibly guided and deterministic:
+- The user sees the reference phrase they must type.
+- The confirm button stays blurred and unclickable until phrase input matches.
+- Typing feedback follows Monkeytype-like per-character rendering.
+
+### Scope
+- Replace visible phrase input UI with:
+  - Hidden real text input used for capturing typing/focus.
+  - Separate visual rendering container for the reference phrase and typed-state colors.
+- Add per-character render states:
+  - Pending: `#646669`
+  - Correct: `#d1d0c5`
+  - Incorrect: `#ca4754`
+  - Overflow/extra chars: `#7e2a33`
+- Add a blinking vertical caret that moves with typing progress.
+- Add full-button blur lock while phrase is not valid.
+
+### Rendering Rules
+1. Split reference phrase and user input into words by spaces.
+2. Compare each input word against the corresponding reference word.
+3. Render reference characters one-to-one with correct/incorrect/pending state.
+4. If an input word exceeds reference length, render the extra chars before the inter-word space as overflow chars.
+5. Typing a space advances caret/rendering to next word.
+
+### Verification
+- `node --check popup.js`
+- Manual popup check:
+  - Phrase is visible before typing.
+  - Button is blurred + disabled before match.
+  - Button becomes sharp + enabled after exact phrase match.
+  - Overflow chars render as dark red before the next word's space.
+
+## Addendum: Configurable Unlock Phrase in Settings
+
+### Goal
+Allow users to define the unlock/pause phrase directly in popup settings.
+
+### Scope
+- Add a settings text input for unlock phrase configuration.
+- Persist configured phrase to extension local storage.
+- Use configured phrase in challenge rendering and phrase validation.
+- Normalize phrase by trimming and collapsing spaces; fallback to default if empty.
+
+### Verification
+- `node --check popup.js`
+- Manual popup check:
+  - Changing phrase in Settings persists after popup reopen.
+  - Lock challenge displays the configured phrase.
+  - Confirm remains locked until the configured phrase is typed correctly.

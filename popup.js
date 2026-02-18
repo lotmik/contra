@@ -1,6 +1,6 @@
 "use strict";
 
-const DEFAULT_UNLOCK_PHRASE = "I swear to god I will focus";
+const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that I don't want to ruin my cognitive abilities";
 const DEFAULT_HARDCORE_MODE_STATUS = {
   active: false,
   reason: "not_checked",
@@ -50,6 +50,7 @@ const elements = {
   unlockChallenge: document.getElementById("unlock-challenge"),
   unlockPhraseLabel: document.querySelector('label[for="unlock-phrase-input"]'),
   unlockPhraseInput: document.getElementById("unlock-phrase-input"),
+  unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
   testDisableButton: document.getElementById("test-disable-btn"),
   settingsBlurWrap: document.getElementById("settings-blur-wrap"),
@@ -57,6 +58,7 @@ const elements = {
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
+  unlockPhraseSettingInput: document.getElementById("unlock-phrase-setting"),
   timerMinutesInput: document.getElementById("timer-minutes"),
   timerMinutesValue: document.getElementById("timer-minutes-value")
 };
@@ -94,6 +96,113 @@ function normalizePhrase(value) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+}
+
+function sanitizeUnlockPhrase(value) {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  return normalized.length > 0 ? normalized : DEFAULT_UNLOCK_PHRASE;
+}
+
+function getReferencePhraseForTyping() {
+  return sanitizeUnlockPhrase(state.unlockPhrase);
+}
+
+function sanitizeTypedPhraseInput(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/^\s+/, "");
+}
+
+function charsMatchAtIndex(referenceChar, typedChar) {
+  return String(referenceChar).toLowerCase() === String(typedChar).toLowerCase();
+}
+
+function appendTypingCharacter(fragment, character, variant) {
+  const span = document.createElement("span");
+  span.className = `typing-char ${variant}`;
+  span.textContent = character;
+  fragment.appendChild(span);
+}
+
+function appendTypingCaret(fragment) {
+  const caret = document.createElement("span");
+  caret.className = "typing-caret";
+  caret.setAttribute("aria-hidden", "true");
+  fragment.appendChild(caret);
+}
+
+function renderPhraseTypingPreview() {
+  const display = elements.unlockPhraseDisplay;
+  if (!display) {
+    return;
+  }
+
+  const referencePhrase = getReferencePhraseForTyping();
+  const typedInput = sanitizeTypedPhraseInput(elements.unlockPhraseInput.value);
+  const referenceWords = referencePhrase.split(" ");
+  const inputWords = typedInput.length > 0 ? typedInput.split(" ") : [""];
+  const totalWords = Math.max(referenceWords.length, inputWords.length);
+  const caretWordIndex = Math.max(0, inputWords.length - 1);
+  const caretCharIndex = inputWords[caretWordIndex]?.length || 0;
+  const fragment = document.createDocumentFragment();
+
+  for (let wordIndex = 0; wordIndex < totalWords; wordIndex += 1) {
+    const referenceWord = referenceWords[wordIndex] || "";
+    const inputWord = inputWords[wordIndex] || "";
+    const overflowWord = inputWord.length > referenceWord.length ? inputWord.slice(referenceWord.length) : "";
+    const totalVisibleWordLength = referenceWord.length + overflowWord.length;
+    const isCaretWord = wordIndex === caretWordIndex;
+    const clampedCaretIndex = Math.min(caretCharIndex, totalVisibleWordLength);
+
+    for (let charIndex = 0; charIndex < referenceWord.length; charIndex += 1) {
+      if (isCaretWord && clampedCaretIndex === charIndex) {
+        appendTypingCaret(fragment);
+      }
+
+      const referenceChar = referenceWord[charIndex];
+      const typedChar = inputWord[charIndex];
+      if (typedChar === undefined) {
+        appendTypingCharacter(fragment, referenceChar, "pending");
+      } else if (charsMatchAtIndex(referenceChar, typedChar)) {
+        appendTypingCharacter(fragment, referenceChar, "correct");
+      } else {
+        appendTypingCharacter(fragment, referenceChar, "incorrect");
+      }
+    }
+
+    for (let overflowIndex = 0; overflowIndex < overflowWord.length; overflowIndex += 1) {
+      const charPosition = referenceWord.length + overflowIndex;
+      if (isCaretWord && clampedCaretIndex === charPosition) {
+        appendTypingCaret(fragment);
+      }
+
+      appendTypingCharacter(fragment, overflowWord[overflowIndex], "extra");
+    }
+
+    if (isCaretWord && clampedCaretIndex === totalVisibleWordLength) {
+      appendTypingCaret(fragment);
+    }
+
+    if (wordIndex < totalWords - 1) {
+      const hasTypedSpaceAfterWord = wordIndex < inputWords.length - 1;
+      const hasReferenceSpaceAfterWord = wordIndex < referenceWords.length - 1;
+      let spaceVariant = "pending";
+      if (hasTypedSpaceAfterWord) {
+        spaceVariant = hasReferenceSpaceAfterWord ? "correct" : "extra";
+      }
+
+      appendTypingCharacter(fragment, " ", spaceVariant);
+    }
+  }
+
+  display.replaceChildren(fragment);
+}
+
+function setUnlockConfirmButtonState({ disabled, phraseLocked }) {
+  elements.unlockConfirmButton.disabled = disabled;
+  elements.unlockConfirmButton.classList.toggle("is-phrase-locked", disabled && phraseLocked === true);
 }
 
 function parseUrls(text) {
@@ -192,17 +301,24 @@ function setSettingsBlur(isBlurred) {
 
 function setPhraseControls({ visible, label, disabled }) {
   elements.unlockPhraseLabel.hidden = !visible;
+  elements.unlockPhraseDisplay.hidden = !visible;
   elements.unlockPhraseInput.hidden = !visible;
   elements.unlockPhraseInput.disabled = disabled;
+  if (!visible || disabled) {
+    elements.unlockPhraseInput.blur();
+  }
   if (label) {
     elements.unlockPhraseLabel.textContent = label;
   }
+
+  renderPhraseTypingPreview();
 }
 
 function syncFormFromState() {
   elements.modeSelect.value = state.mode;
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
   elements.unlockModeSelect.value = state.unlockMode;
+  elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
   elements.timerMinutesInput.value = String(state.timerMinutes);
   updateTimerLabel(state.timerMinutes);
 }
@@ -210,6 +326,7 @@ function syncFormFromState() {
 function applyFormToState() {
   state.mode = sanitizeMode(elements.modeSelect.value);
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
+  state.unlockPhrase = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
   state.timerMinutes = clampTimerMinutes(Number(elements.timerMinutesInput.value));
 
   const parsedUrls = parseUrls(elements.urlList.value);
@@ -247,8 +364,8 @@ async function loadStateFromStorage() {
   state.unlockMode = sanitizeUnlockMode(stored.unlockMode);
   state.timerMinutes = clampTimerMinutes(Number(stored.timerMinutes));
   state.unlockPhrase =
-    typeof stored.unlockPhrase === "string" && stored.unlockPhrase.trim().length > 0
-      ? stored.unlockPhrase.trim()
+    typeof stored.unlockPhrase === "string"
+      ? sanitizeUnlockPhrase(stored.unlockPhrase)
       : DEFAULT_UNLOCK_PHRASE;
   state.lockEndTime = Number.isFinite(stored.lockEndTime) ? stored.lockEndTime : 0;
   state.timerExpired = typeof stored.timerExpired === "boolean" ? stored.timerExpired : true;
@@ -260,6 +377,7 @@ async function loadStateFromStorage() {
 
 function updateLockedChallenge() {
   updateTestDisableButton();
+  renderPhraseTypingPreview();
 
   const isTimerMode = state.unlockMode === "timer";
   const phraseInput = normalizePhrase(elements.unlockPhraseInput.value);
@@ -269,7 +387,7 @@ function updateLockedChallenge() {
     const pauseRemaining = getPauseRemainingMs();
     if (pauseRemaining > 0) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-      elements.unlockConfirmButton.disabled = true;
+      setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
       elements.unlockConfirmButton.textContent = "Paused";
       updateStatus(`Pause active: ${formatDuration(pauseRemaining)}`);
       return;
@@ -277,7 +395,7 @@ function updateLockedChallenge() {
 
     if (state.timerExpired) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-      elements.unlockConfirmButton.disabled = false;
+      setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
       elements.unlockConfirmButton.textContent = "Stop";
       updateStatus("Timer complete");
       return;
@@ -292,19 +410,21 @@ function updateLockedChallenge() {
         label: "Pause phrase",
         disabled: false
       });
-      elements.unlockConfirmButton.disabled = phraseInput !== expectedPhrase;
+      const phraseMatches = phraseInput === expectedPhrase;
+      setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
       elements.unlockConfirmButton.textContent = "Pause 2 min";
       return;
     }
 
     setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-    elements.unlockConfirmButton.disabled = true;
+    setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
     elements.unlockConfirmButton.textContent = "Wait for timer";
     return;
   }
 
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
-  elements.unlockConfirmButton.disabled = phraseInput !== expectedPhrase;
+  const phraseMatches = phraseInput === expectedPhrase;
+  setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
   elements.unlockConfirmButton.textContent = "Confirm";
   updateStatus("Locked: phrase required");
 }
@@ -348,7 +468,7 @@ function renderUi() {
   setChallengeVisibility(false);
   elements.unlockPhraseInput.value = "";
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
-  elements.unlockConfirmButton.disabled = false;
+  setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
   elements.unlockConfirmButton.textContent = "Confirm";
   updateStatus("");
 }
@@ -563,10 +683,39 @@ function handleUnlockModeChange() {
   }
 }
 
+function handleUnlockPhraseSettingInput() {
+  const sanitized = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
+  if (elements.unlockPhraseSettingInput.value !== sanitized) {
+    elements.unlockPhraseSettingInput.value = sanitized;
+  }
+
+  state.unlockPhrase = sanitized;
+  renderPhraseTypingPreview();
+  void saveStateToStorage().catch((error) => {
+    console.error("Failed to save unlock phrase", error);
+  });
+}
+
 function handlePhraseInput() {
+  const sanitized = sanitizeTypedPhraseInput(elements.unlockPhraseInput.value);
+  if (sanitized !== elements.unlockPhraseInput.value) {
+    elements.unlockPhraseInput.value = sanitized;
+  }
+
   if (state.isBlocking) {
     updateLockedChallenge();
+    return;
   }
+
+  renderPhraseTypingPreview();
+}
+
+function handlePhraseInputFocus() {
+  elements.unlockPhraseDisplay.classList.add("is-focus-visible");
+}
+
+function handlePhraseInputBlur() {
+  elements.unlockPhraseDisplay.classList.remove("is-focus-visible");
 }
 
 async function refreshHardcoreModeStatus(forceRefresh = false) {
@@ -651,8 +800,12 @@ async function initializePopup() {
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
+  elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
+  elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingInput);
   elements.timerMinutesInput.addEventListener("input", handleTimerInput);
   elements.unlockPhraseInput.addEventListener("input", handlePhraseInput);
+  elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
+  elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
 
   browser.storage.onChanged.addListener(handleStorageChanged);
   browser.runtime.onMessage.addListener(handleRuntimeMessage);

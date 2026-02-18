@@ -263,7 +263,7 @@ label {
 
 select,
 textarea,
-input[type="text"],
+input[type="text"]:not(#unlock-phrase-input),
 #unlock-confirm-btn {
   width: 100%;
   border-radius: var(--radius);
@@ -288,6 +288,103 @@ input[type="range"] {
 #unlock-confirm-btn {
   cursor: pointer;
   font-weight: 600;
+}
+
+#unlock-confirm-btn:disabled {
+  cursor: not-allowed;
+}
+
+#unlock-confirm-btn.is-phrase-locked {
+  filter: blur(2.5px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#unlock-typing-surface {
+  position: relative;
+  width: 100%;
+}
+
+#unlock-phrase-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  z-index: 2;
+  caret-color: transparent;
+}
+
+#unlock-phrase-input:focus {
+  outline: none;
+}
+
+#unlock-phrase-display {
+  min-height: 72px;
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid #4a4d52;
+  background: #323437;
+  padding: 10px;
+  color: #646669;
+  font-family: "Roboto Mono", "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: none;
+  pointer-events: none;
+}
+
+#unlock-phrase-display.is-focus-visible {
+  border-color: #80848b;
+}
+
+.typing-char {
+  white-space: pre;
+}
+
+.typing-char.pending {
+  color: #646669;
+  opacity: 0.5;
+}
+
+.typing-char.correct {
+  color: #d1d0c5;
+  opacity: 1;
+}
+
+.typing-char.incorrect {
+  color: #ca4754;
+  opacity: 1;
+}
+
+.typing-char.extra {
+  color: #7e2a33;
+  opacity: 1;
+}
+
+.typing-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: #d1d0c5;
+  vertical-align: text-bottom;
+  animation: typing-caret-blink 1s step-end infinite;
+}
+
+@keyframes typing-caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 
 #test-disable-btn {

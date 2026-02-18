@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&display=swap"
     />
     <link rel="stylesheet" href="popup.css" />
   </head>
@@ -35,14 +35,21 @@
       <div id="lockable-area">
         <div id="unlock-challenge" aria-hidden="true">
           <label for="unlock-phrase-input">Unlock phrase</label>
-          <input
-            id="unlock-phrase-input"
-            name="unlock-phrase-input"
-            type="text"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Type phrase"
-          />
+          <div id="unlock-typing-surface">
+            <input
+              id="unlock-phrase-input"
+              name="unlock-phrase-input"
+              type="text"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+            />
+            <div
+              id="unlock-phrase-display"
+              aria-label="Type unlock phrase"
+            ></div>
+          </div>
           <button id="unlock-confirm-btn" type="button">Confirm</button>
         </div>
 
@@ -81,6 +88,20 @@
                   <option value="timer">Timer</option>
                   <option value="phrase">Phrase</option>
                 </select>
+              </div>
+
+              <div class="control-group">
+                <label for="unlock-phrase-setting">Unlock phrase</label>
+                <input
+                  id="unlock-phrase-setting"
+                  name="unlock-phrase-setting"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  spellcheck="false"
+                  placeholder="I swear to god I will focus"
+                />
               </div>
 
               <div class="control-group">
