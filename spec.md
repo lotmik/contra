@@ -192,3 +192,20 @@ Make URL list and editable timer preset updates resilient and predictable, so ty
   - Type in URL list and click away immediately; verify list remains persisted.
   - Double-click a timer preset, type a valid number, click away; verify preset value persists.
   - Double-click preset, clear the editor and blur; verify previous preset value remains unchanged.
+
+## Addendum: Blocked Settings Summary Lock
+
+### Goal
+When blocking is active, lock the main popup `Settings` dropdown row itself instead of blurring the full settings content.
+
+### Scope
+- Make the `Settings` summary row non-interactive while blocked.
+- Apply blur to the whole summary row (chevron + label) while blocked.
+- Prevent copying/selecting the visible `Settings` label in blocked mode.
+
+### Verification
+- `node --check popup.js`
+- Manual popup flow:
+  - Start blocking and verify the `Settings` summary row appears blurred.
+  - Verify clicking the `Settings` summary row does not open/close the dropdown while blocked.
+  - Verify selecting/copying the visible `Settings` label is not possible while blocked.

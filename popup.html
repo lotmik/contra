@@ -50,7 +50,7 @@
         </div>
 
         <details id="settings-dropdown">
-          <summary>Settings</summary>
+          <summary id="settings-summary" aria-label="Settings" data-label="Settings"></summary>
           <div id="settings-blur-wrap">
             <section id="settings-area" aria-label="Settings">
               <div class="control-group">
@@ -69,6 +69,7 @@
                   rows="1"
                   placeholder="example.com"
                 ></textarea>
+                <p id="url-list-error" class="field-error" role="alert" hidden></p>
               </div>
 
               <div class="control-group">

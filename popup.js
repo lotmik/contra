@@ -5,6 +5,8 @@ const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
+const URL_LIST_SYNC_DEBOUNCE_MS = 250;
+const URL_LIST_VALIDATION_DELAY_MS = 500;
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
@@ -52,10 +54,12 @@ let isUnlockChallengeOpen = false;
 let presetEditState = null;
 let urlListSyncTimeoutId = null;
 let pendingUrlListSyncDraft = null;
+let urlListValidationTimeoutId = null;
 
 const elements = {
   body: document.body,
   statusArea: document.getElementById("status-area"),
+  powerSection: document.querySelector(".power-section"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
@@ -64,10 +68,11 @@ const elements = {
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
   unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
-  settingsBlurWrap: document.getElementById("settings-blur-wrap"),
-  settingsArea: document.getElementById("settings-area"),
+  settingsDropdown: document.getElementById("settings-dropdown"),
+  settingsSummary: document.getElementById("settings-summary"),
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
+  urlListError: document.getElementById("url-list-error"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
@@ -359,12 +364,139 @@ function setUnlockConfirmButtonState({ disabled, phraseLocked }) {
   elements.unlockConfirmButton.classList.toggle("is-phrase-locked", disabled && phraseLocked === true);
 }
 
+function getUrlListValidationError(text = elements.urlList.value) {
+  return buildUrlListValidationError(String(text || ""));
+}
+
+function updatePowerToggleAvailability() {
+  const hasUrlErrors = getUrlListValidationError().length > 0;
+  const shouldDisableStart = !state.isBlocking && hasUrlErrors;
+
+  elements.powerSection?.classList.toggle("has-url-errors", shouldDisableStart);
+  elements.powerToggle.disabled = shouldDisableStart;
+  if (shouldDisableStart) {
+    elements.powerToggle.checked = false;
+  }
+}
+
+function splitUrlListLines(text) {
+  return String(text || "").split(/\r?\n/);
+}
+
+function isValidIpv4Hostname(hostname) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+    return false;
+  }
+
+  return hostname.split(".").every((segment) => {
+    const value = Number(segment);
+    return Number.isInteger(value) && value >= 0 && value <= 255;
+  });
+}
+
+function isValidUrlHostname(hostname) {
+  if (typeof hostname !== "string" || hostname.length === 0) {
+    return false;
+  }
+
+  if (hostname === "localhost") {
+    return true;
+  }
+
+  if (hostname.includes(":")) {
+    return true;
+  }
+
+  if (isValidIpv4Hostname(hostname)) {
+    return true;
+  }
+
+  return hostname.includes(".") && !hostname.startsWith(".") && !hostname.endsWith(".");
+}
+
+function normalizeUrlRule(rawValue) {
+  const trimmed = String(rawValue || "").trim().toLowerCase();
+  if (trimmed.length === 0 || /\s/.test(trimmed)) {
+    return null;
+  }
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed);
+  if (hasScheme && !/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    return isValidUrlHostname(parsed.hostname.toLowerCase()) ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseUrls(text) {
-  return sanitizeList(String(text || "").split(/\r?\n/));
+  return sanitizeList(splitUrlListLines(text));
 }
 
 function formatUrls(list) {
   return sanitizeList(list).join("\n");
+}
+
+function buildUrlListValidationError(text) {
+  const lines = splitUrlListLines(text);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = String(lines[lineIndex] || "").trim();
+    if (rawLine.length === 0) {
+      continue;
+    }
+
+    if (/\s/.test(rawLine)) {
+      return `Line ${lineIndex + 1}: one link only`;
+    }
+
+    if (!normalizeUrlRule(rawLine)) {
+      return `Line ${lineIndex + 1}: invalid link`;
+    }
+  }
+
+  return "";
+}
+
+function setUrlListValidationError(message = "") {
+  const text = String(message || "").trim();
+  const hasError = text.length > 0;
+
+  elements.urlList.classList.toggle("is-invalid", hasError);
+  if (hasError) {
+    elements.urlList.setAttribute("aria-invalid", "true");
+  } else {
+    elements.urlList.removeAttribute("aria-invalid");
+  }
+
+  if (!elements.urlListError) {
+    updatePowerToggleAvailability();
+    return;
+  }
+
+  elements.urlListError.textContent = text;
+  elements.urlListError.hidden = !hasError;
+  updatePowerToggleAvailability();
+}
+
+function clearPendingUrlListValidation() {
+  if (urlListValidationTimeoutId !== null) {
+    clearTimeout(urlListValidationTimeoutId);
+    urlListValidationTimeoutId = null;
+  }
+}
+
+function scheduleUrlListValidation(text) {
+  const draftText = String(text || "");
+  clearPendingUrlListValidation();
+  urlListValidationTimeoutId = window.setTimeout(() => {
+    urlListValidationTimeoutId = null;
+    setUrlListValidationError(buildUrlListValidationError(draftText));
+  }, URL_LIST_VALIDATION_DELAY_MS);
 }
 
 function buildUrlListSyncDraft() {
@@ -405,6 +537,9 @@ function clearPendingUrlListSync() {
 
 function scheduleUrlListSync() {
   pendingUrlListSyncDraft = buildUrlListSyncDraft();
+  setUrlListValidationError("");
+  clearPendingUrlListValidation();
+  updatePowerToggleAvailability();
   if (urlListSyncTimeoutId !== null) {
     clearTimeout(urlListSyncTimeoutId);
   }
@@ -418,7 +553,8 @@ function scheduleUrlListSync() {
     }
 
     persistUrlListDraft(draft);
-  }, INPUT_SYNC_DEBOUNCE_MS);
+    scheduleUrlListValidation(draft.text);
+  }, URL_LIST_SYNC_DEBOUNCE_MS);
 }
 
 function flushPendingUrlListSync() {
@@ -430,6 +566,9 @@ function flushPendingUrlListSync() {
   const draft = pendingUrlListSyncDraft ?? buildUrlListSyncDraft();
   pendingUrlListSyncDraft = null;
   persistUrlListDraft(draft);
+  setUrlListValidationError("");
+  scheduleUrlListValidation(draft.text);
+  updatePowerToggleAvailability();
 }
 
 function formatDuration(totalMs) {
@@ -539,9 +678,22 @@ function setChallengeVisibility(isVisible) {
   }
 }
 
-function setSettingsBlur(isBlurred) {
-  elements.settingsBlurWrap.classList.toggle("settings-blurred", isBlurred);
-  elements.settingsArea.classList.toggle("settings-blurred", isBlurred);
+function setSettingsBlocked(isBlocked) {
+  elements.settingsDropdown.classList.toggle("is-blocked", isBlocked);
+  elements.settingsSummary.setAttribute("aria-disabled", String(isBlocked));
+
+  if (isBlocked) {
+    elements.settingsDropdown.open = false;
+    elements.settingsDropdown.setAttribute("inert", "");
+    elements.settingsSummary.tabIndex = -1;
+    if (document.activeElement === elements.settingsSummary) {
+      elements.settingsSummary.blur();
+    }
+    return;
+  }
+
+  elements.settingsDropdown.removeAttribute("inert");
+  elements.settingsSummary.removeAttribute("tabindex");
 }
 
 function updateTimerSettingsVisibility() {
@@ -613,6 +765,7 @@ function syncFormFromState() {
   if (document.activeElement !== elements.urlList) {
     elements.urlList.value = formattedActiveList;
   }
+  setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
   elements.unlockModeSelect.value = state.unlockMode;
   updateTimerSettingsVisibility();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
@@ -781,6 +934,7 @@ function startTimerTick() {
 
 function renderUi() {
   elements.powerToggle.checked = state.isBlocking;
+  updatePowerToggleAvailability();
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
     : "Start blocking";
@@ -789,7 +943,7 @@ function renderUi() {
     if (state.unlockMode === "timer" && state.timerExpired) {
       isUnlockChallengeOpen = false;
     }
-    setSettingsBlur(true);
+    setSettingsBlocked(true);
     setChallengeVisibility(isUnlockChallengeOpen);
     updateLockedChallenge();
     startTimerTick();
@@ -797,7 +951,7 @@ function renderUi() {
   }
 
   stopTimerTick();
-  setSettingsBlur(false);
+  setSettingsBlocked(false);
   isUnlockChallengeOpen = false;
   setChallengeVisibility(false);
   elements.unlockPhraseInput.value = "";
@@ -936,6 +1090,14 @@ async function requestPausePositive() {
 
 async function handlePowerToggleChange() {
   if (!state.isBlocking && elements.powerToggle.checked) {
+    const validationError = getUrlListValidationError(elements.urlList.value);
+    if (validationError) {
+      clearPendingUrlListValidation();
+      setUrlListValidationError(validationError);
+      elements.powerToggle.checked = false;
+      return;
+    }
+
     await startBlocking();
     return;
   }
@@ -986,9 +1148,13 @@ async function handleUnlockConfirmClick() {
 
 function handleModeChange() {
   clearPendingUrlListSync();
+  clearPendingUrlListValidation();
+  setUrlListValidationError("");
   state[getActiveListKey()] = parseUrls(elements.urlList.value);
   state.mode = sanitizeMode(elements.modeSelect.value);
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
+  setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
+  updatePowerToggleAvailability();
 
   void browser.storage.local
     .set({
@@ -1002,6 +1168,7 @@ function handleModeChange() {
 }
 
 function handleUrlListInput() {
+  updatePowerToggleAvailability();
   scheduleUrlListSync();
 }
 
@@ -1337,6 +1504,7 @@ async function initializePopup() {
   window.addEventListener("resize", renderPhraseTypingPreview);
   window.addEventListener("beforeunload", () => {
     flushPendingUrlListSync();
+    clearPendingUrlListValidation();
     stopPresetEndTimeTicker();
     if (presetEditState) {
       stopPresetEditing(true);
