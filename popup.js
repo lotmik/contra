@@ -1,12 +1,6 @@
 "use strict";
 
 const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that I don't want to ruin my cognitive abilities";
-const DEFAULT_HARDCORE_MODE_STATUS = {
-  active: false,
-  reason: "not_checked",
-  installType: "unknown",
-  checkedAt: 0
-};
 const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
@@ -48,8 +42,7 @@ const state = {
   timerExpired: true,
   pausePositiveEnabled: true,
   pauseUntil: 0,
-  testDisableUntil: 0,
-  hardcoreModeStatus: { ...DEFAULT_HARDCORE_MODE_STATUS }
+  testDisableUntil: 0
 };
 
 let timerTickId = null;
@@ -60,7 +53,6 @@ let presetEditState = null;
 const elements = {
   body: document.body,
   statusArea: document.getElementById("status-area"),
-  hardcoreModeBadge: document.getElementById("hardcore-mode-badge"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
@@ -74,6 +66,7 @@ const elements = {
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
+  timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
   timerPresets: document.getElementById("timer-presets"),
   unlockPhraseSettingInput: document.getElementById("unlock-phrase-setting"),
@@ -468,30 +461,6 @@ function updateStatus(text) {
   elements.statusArea.textContent = text;
 }
 
-function normalizeHardcoreModeStatus(status = {}) {
-  const installType = typeof status.installType === "string" ? status.installType : "unknown";
-  return {
-    active: status.active === true,
-    reason: typeof status.reason === "string" ? status.reason : "unknown",
-    installType,
-    checkedAt: Number.isFinite(status.checkedAt) ? status.checkedAt : 0
-  };
-}
-
-function renderHardcoreModeStatus() {
-  const isActive = state.hardcoreModeStatus.active;
-  const classList = elements.hardcoreModeBadge.classList;
-  classList.remove("is-active", "is-inactive");
-
-  if (isActive) {
-    classList.add("is-active");
-    elements.hardcoreModeBadge.textContent = "Hardcore mode: on";
-  } else {
-    classList.add("is-inactive");
-    elements.hardcoreModeBadge.textContent = "Hardcore mode: off";
-  }
-}
-
 function setChallengeVisibility(isVisible) {
   elements.body.classList.toggle("is-unlock-pending", isVisible);
   elements.unlockChallenge.setAttribute("aria-hidden", String(!isVisible));
@@ -503,6 +472,12 @@ function setChallengeVisibility(isVisible) {
 function setSettingsBlur(isBlurred) {
   elements.settingsBlurWrap.classList.toggle("settings-blurred", isBlurred);
   elements.settingsArea.classList.toggle("settings-blurred", isBlurred);
+}
+
+function updateTimerSettingsVisibility() {
+  const showTimerSettings = state.unlockMode === "timer";
+  elements.timerSettingsGroup.hidden = !showTimerSettings;
+  elements.timerEndTimeInput.disabled = !showTimerSettings;
 }
 
 function setPhraseControls({ visible, label, disabled }) {
@@ -557,6 +532,7 @@ function syncFormFromState() {
   elements.modeSelect.value = state.mode;
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
   elements.unlockModeSelect.value = state.unlockMode;
+  updateTimerSettingsVisibility();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
   autoResizeUnlockPhraseSettingField();
   syncTimerControlsFromState();
@@ -722,7 +698,6 @@ function startTimerTick() {
 }
 
 function renderUi() {
-  renderHardcoreModeStatus();
   elements.powerToggle.checked = state.isBlocking;
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
@@ -1069,10 +1044,15 @@ function handleTimerEndTimeChange() {
 
 function handleUnlockModeChange() {
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
+  updateTimerSettingsVisibility();
   if (state.isBlocking) {
     updateLockedChallenge();
     startTimerTick();
   }
+
+  void saveStateToStorage().catch((error) => {
+    console.error("Failed to save unlock mode", error);
+  });
 }
 
 function handleUnlockPhraseSettingInput() {
@@ -1134,34 +1114,11 @@ function handleUnlockPhraseKeydown(event) {
   void handleUnlockConfirmClick();
 }
 
-async function refreshHardcoreModeStatus(forceRefresh = false) {
-  try {
-    const response = await browser.runtime.sendMessage({
-      type: forceRefresh ? "REFRESH_MANAGED_LOCK_STATUS" : "GET_MANAGED_LOCK_STATUS"
-    });
-
-    if (response?.ok === true && response.status) {
-      state.hardcoreModeStatus = normalizeHardcoreModeStatus(response.status);
-      renderHardcoreModeStatus();
-    }
-  } catch (error) {
-    state.hardcoreModeStatus = {
-      active: false,
-      reason: "check_failed",
-      installType: "unknown",
-      checkedAt: Date.now()
-    };
-    renderHardcoreModeStatus();
-    console.error("Failed to refresh hardcore mode status", error);
-  }
-}
-
 function refreshFromStorage() {
   void loadStateFromStorage()
     .then(() => {
       syncFormFromState();
       renderUi();
-      return refreshHardcoreModeStatus(false);
     })
     .catch((error) => {
       console.error("Failed to refresh popup state", error);
@@ -1182,12 +1139,6 @@ function handleStorageChanged(changes, areaName) {
 }
 
 function handleRuntimeMessage(message = {}) {
-  if (message.type === "MANAGED_LOCK_STATUS_UPDATED" && message.status) {
-    state.hardcoreModeStatus = normalizeHardcoreModeStatus(message.status);
-    renderHardcoreModeStatus();
-    return;
-  }
-
   if (
     message.type === "UNLOCK_TIMER_EXPIRED" ||
     message.type === "PAUSE_POSITIVE_STARTED" ||
@@ -1203,7 +1154,6 @@ async function initializePopup() {
   await loadStateFromStorage();
   syncFormFromState();
   renderUi();
-  await refreshHardcoreModeStatus(true);
 
   elements.powerToggle.addEventListener("change", () => {
     void handlePowerToggleChange();

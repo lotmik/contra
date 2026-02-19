@@ -19,11 +19,6 @@
       </header>
 
       <div id="status-area" aria-live="polite"></div>
-      <section id="hardcore-mode-area" aria-live="polite">
-        <p id="hardcore-mode-badge" class="hardcore-mode-badge">
-          Hardcore mode: off
-        </p>
-      </section>
 
       <section class="power-section" aria-label="Power toggle">
         <input id="power-toggle" name="power-toggle" type="checkbox" />
@@ -71,7 +66,7 @@
                 <textarea
                   id="url-list"
                   name="url-list"
-                  rows="5"
+                  rows="1"
                   placeholder="example.com"
                 ></textarea>
               </div>
@@ -95,8 +90,8 @@
                 ></textarea>
               </div>
 
-              <div class="control-group">
-                <label for="timer-end-time">Timer</label>
+              <div id="timer-settings-group" class="control-group">
+                <label for="timer-end-time">Timer (double click to edit)</label>
                 <div id="timer-presets" class="timer-presets" aria-label="Timer presets">
                   <button class="timer-preset-btn" type="button" data-preset-index="0">15m</button>
                   <button class="timer-preset-btn" type="button" data-preset-index="1">25m</button>
@@ -104,9 +99,18 @@
                   <button class="timer-preset-btn" type="button" data-preset-index="3">60m</button>
                 </div>
                 <div class="timer-row">
-                  <label for="timer-end-time">End time (24h)</label>
+                  <label for="timer-end-time">End time</label>
                 </div>
-                <input id="timer-end-time" name="timer-end-time" type="time" step="60" />
+                <input
+                  id="timer-end-time"
+                  name="timer-end-time"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="5"
+                  placeholder="23:59"
+                  pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                  autocomplete="off"
+                />
               </div>
             </section>
           </div>

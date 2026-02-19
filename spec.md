@@ -7,7 +7,6 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 - Add operational tooling to build an XPI package.
 - Add operational tooling to install and verify Firefox root-owned policies.
 - Add policy template for force-installing `contra@local`.
-- Add popup status for managed lock visibility.
 - Keep anti-tamper blocking of extension-management pages active.
 
 ## Out of Scope
@@ -27,8 +26,6 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
    - Remove policy lock and revert managed XPI using latest backup when available.
 6. `scripts/dev-local-firefox.sh`
    - Launch a dedicated local-dev Firefox profile with unsigned-addon preference for persistent local testing on Developer Edition/Nightly.
-7. Popup status
-   - Add managed-lock badge and guidance text backed by `browser.management.getSelf()` checks in background worker.
 
 ## Verification
 - `node --check background.js`

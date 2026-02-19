@@ -12,12 +12,6 @@ let pauseUntil = 0;
 let testDisableUntil = 0;
 let recoverableClosedTabs = [];
 let aggressiveTamperIntervalId = null;
-let managedLockStatus = {
-  active: false,
-  reason: "not_checked",
-  installType: "unknown",
-  checkedAt: 0
-};
 
 const TAMPER_PAGES = [
   "about:addons",
@@ -149,41 +143,6 @@ function isTemporarilyDisabledForTest() {
 
 function shouldEnforceBlocking() {
   return isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest();
-}
-
-function isManagedInstallType(installType) {
-  return installType === "admin";
-}
-
-async function detectManagedLockStatus() {
-  const nextStatus = {
-    active: false,
-    reason: "unknown",
-    installType: "unknown",
-    checkedAt: Date.now()
-  };
-
-  try {
-    if (!browser.management || typeof browser.management.getSelf !== "function") {
-      nextStatus.reason = "management_api_unavailable";
-    } else {
-      const self = await browser.management.getSelf();
-      const installType = typeof self.installType === "string" ? self.installType : "unknown";
-      nextStatus.installType = installType;
-      nextStatus.active = isManagedInstallType(installType) && self.enabled !== false;
-      nextStatus.reason = nextStatus.active ? "managed_active" : "not_managed";
-    }
-  } catch {
-    nextStatus.reason = "check_failed";
-  }
-
-  managedLockStatus = nextStatus;
-  await sendPopupMessage({ type: "MANAGED_LOCK_STATUS_UPDATED", status: managedLockStatus });
-  return managedLockStatus;
-}
-
-function getManagedLockStatus() {
-  return managedLockStatus;
 }
 
 function canStopBlocking() {
@@ -809,20 +768,11 @@ browser.runtime.onMessage.addListener((message = {}) => {
       .then(() => ({ ok: true }));
   }
 
-  if (type === "GET_MANAGED_LOCK_STATUS") {
-    return Promise.resolve({ ok: true, status: getManagedLockStatus() });
-  }
-
-  if (type === "REFRESH_MANAGED_LOCK_STATUS") {
-    return detectManagedLockStatus().then((status) => ({ ok: true, status }));
-  }
-
   return Promise.resolve({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
 });
 
 void loadState()
   .then(async () => {
-    await detectManagedLockStatus();
     await reconcileTimers();
     reconcileAggressiveTamperMonitor();
     if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {

@@ -15,6 +15,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -42,7 +46,6 @@ body {
 
 header,
 #status-area,
-#hardcore-mode-area,
 #lockable-area,
 #settings-dropdown,
 #settings-blur-wrap,
@@ -67,35 +70,6 @@ header,
 
 #status-area:empty {
   display: none;
-}
-
-#hardcore-mode-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.hardcore-mode-badge {
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.hardcore-mode-badge.is-active {
-  color: #8fffa3;
-  background: rgba(39, 101, 53, 0.45);
-  border-color: rgba(124, 224, 148, 0.5);
-}
-
-.hardcore-mode-badge.is-inactive {
-  color: #ffb4b4;
-  background: rgba(109, 35, 35, 0.45);
-  border-color: rgba(224, 124, 124, 0.5);
 }
 
 .power-section {
