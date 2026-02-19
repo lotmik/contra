@@ -4,6 +4,7 @@ const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that I don't
 const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
+const INPUT_SYNC_DEBOUNCE_MS = 500;
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
@@ -49,6 +50,8 @@ let timerTickId = null;
 let presetEndTimeTickId = null;
 let isUnlockChallengeOpen = false;
 let presetEditState = null;
+let urlListSyncTimeoutId = null;
+let pendingUrlListSyncDraft = null;
 
 const elements = {
   body: document.body,
@@ -364,6 +367,71 @@ function formatUrls(list) {
   return sanitizeList(list).join("\n");
 }
 
+function buildUrlListSyncDraft() {
+  return {
+    mode: sanitizeMode(elements.modeSelect.value),
+    text: String(elements.urlList.value || "")
+  };
+}
+
+function applyUrlListDraftToState(draft) {
+  const safeDraft = draft ?? buildUrlListSyncDraft();
+  const mode = sanitizeMode(safeDraft.mode);
+  const parsedUrls = parseUrls(safeDraft.text);
+  if (mode === "allow") {
+    state.whiteList = parsedUrls;
+    return mode;
+  }
+
+  state.blockList = parsedUrls;
+  return mode;
+}
+
+function persistUrlListDraft(draft, errorLabel = "Failed to save URL list") {
+  const mode = applyUrlListDraftToState(draft);
+  const payload = mode === "allow" ? { whiteList: state.whiteList } : { blockList: state.blockList };
+  void browser.storage.local.set(payload).catch((error) => {
+    console.error(errorLabel, error);
+  });
+}
+
+function clearPendingUrlListSync() {
+  if (urlListSyncTimeoutId !== null) {
+    clearTimeout(urlListSyncTimeoutId);
+    urlListSyncTimeoutId = null;
+  }
+  pendingUrlListSyncDraft = null;
+}
+
+function scheduleUrlListSync() {
+  pendingUrlListSyncDraft = buildUrlListSyncDraft();
+  if (urlListSyncTimeoutId !== null) {
+    clearTimeout(urlListSyncTimeoutId);
+  }
+
+  urlListSyncTimeoutId = window.setTimeout(() => {
+    const draft = pendingUrlListSyncDraft;
+    urlListSyncTimeoutId = null;
+    pendingUrlListSyncDraft = null;
+    if (!draft) {
+      return;
+    }
+
+    persistUrlListDraft(draft);
+  }, INPUT_SYNC_DEBOUNCE_MS);
+}
+
+function flushPendingUrlListSync() {
+  if (urlListSyncTimeoutId !== null) {
+    clearTimeout(urlListSyncTimeoutId);
+    urlListSyncTimeoutId = null;
+  }
+
+  const draft = pendingUrlListSyncDraft ?? buildUrlListSyncDraft();
+  pendingUrlListSyncDraft = null;
+  persistUrlListDraft(draft);
+}
+
 function formatDuration(totalMs) {
   const totalSeconds = Math.ceil(Math.max(0, totalMs) / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -541,7 +609,10 @@ function openUnlockChallenge() {
 
 function syncFormFromState() {
   elements.modeSelect.value = state.mode;
-  elements.urlList.value = formatUrls(state[getActiveListKey()]);
+  const formattedActiveList = formatUrls(state[getActiveListKey()]);
+  if (document.activeElement !== elements.urlList) {
+    elements.urlList.value = formattedActiveList;
+  }
   elements.unlockModeSelect.value = state.unlockMode;
   updateTimerSettingsVisibility();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
@@ -749,6 +820,10 @@ function collectPayloadFromState() {
 }
 
 async function startBlocking() {
+  if (presetEditState) {
+    stopPresetEditing(true, false);
+  }
+
   applyFormToState();
 
   if (state.unlockMode === "timer") {
@@ -910,19 +985,85 @@ async function handleUnlockConfirmClick() {
 }
 
 function handleModeChange() {
+  clearPendingUrlListSync();
   state[getActiveListKey()] = parseUrls(elements.urlList.value);
   state.mode = sanitizeMode(elements.modeSelect.value);
   elements.urlList.value = formatUrls(state[getActiveListKey()]);
 
-  void saveStateToStorage().catch((error) => {
-    console.error("Failed to save list mode change", error);
-  });
+  void browser.storage.local
+    .set({
+      mode: state.mode,
+      blockList: state.blockList,
+      whiteList: state.whiteList
+    })
+    .catch((error) => {
+      console.error("Failed to save list mode change", error);
+    });
+}
+
+function handleUrlListInput() {
+  scheduleUrlListSync();
+}
+
+function handleUrlListBlur() {
+  flushPendingUrlListSync();
 }
 
 function persistTimerSettings(errorLabel) {
-  void saveStateToStorage().catch((error) => {
-    console.error(errorLabel, error);
-  });
+  void browser.storage.local
+    .set({
+      timerMinutes: state.timerMinutes,
+      timerPresets: state.timerPresets,
+      timerSelectionMode: state.timerSelectionMode,
+      selectedPresetIndex: state.selectedPresetIndex,
+      manualEndTime: state.manualEndTime
+    })
+    .catch((error) => {
+      console.error(errorLabel, error);
+    });
+}
+
+function applyEditedPresetMinutes(index, rawValue) {
+  const presetIndex = sanitizeSelectedPresetIndex(index);
+  if (presetIndex === null) {
+    return false;
+  }
+
+  const parsedMinutes = Number(String(rawValue || "").trim());
+  const isValidMinutes = Number.isInteger(parsedMinutes) && parsedMinutes >= 1 && parsedMinutes <= 1440;
+  if (!isValidMinutes) {
+    return false;
+  }
+
+  state.timerPresets[presetIndex] = clampTimerMinutes(parsedMinutes);
+  state.timerSelectionMode = TIMER_SELECTION_MODE_PRESET;
+  state.selectedPresetIndex = presetIndex;
+  state.timerMinutes = minutesFromSelectedPreset();
+  return true;
+}
+
+function schedulePresetEditingSync() {
+  if (!presetEditState) {
+    return;
+  }
+
+  if (presetEditState.syncTimeoutId !== null) {
+    clearTimeout(presetEditState.syncTimeoutId);
+  }
+
+  presetEditState.syncTimeoutId = window.setTimeout(() => {
+    if (!presetEditState) {
+      return;
+    }
+
+    const didApply = applyEditedPresetMinutes(presetEditState.index, presetEditState.input.value);
+    if (!didApply) {
+      return;
+    }
+
+    syncTimerControlsFromState();
+    persistTimerSettings("Failed to save edited timer preset");
+  }, INPUT_SYNC_DEBOUNCE_MS);
 }
 
 function selectTimerPreset(index) {
@@ -938,28 +1079,23 @@ function selectTimerPreset(index) {
   persistTimerSettings("Failed to save timer preset");
 }
 
-function stopPresetEditing(commit) {
+function stopPresetEditing(commit, shouldPersist = true) {
   if (!presetEditState) {
     return;
   }
 
-  const { index, button, input } = presetEditState;
-  const parsedMinutes = Number(input.value);
-  const isValidMinutes = Number.isInteger(parsedMinutes) && parsedMinutes >= 1 && parsedMinutes <= 1440;
-  const shouldApply = commit === true && isValidMinutes;
+  const { index, button, input, syncTimeoutId } = presetEditState;
+  if (syncTimeoutId !== null) {
+    clearTimeout(syncTimeoutId);
+  }
+  const shouldApply = commit === true && applyEditedPresetMinutes(index, input.value);
 
   presetEditState = null;
   button.classList.remove("is-editing");
   button.replaceChildren();
 
-  if (shouldApply) {
-    state.timerPresets[index] = clampTimerMinutes(parsedMinutes);
-    state.timerSelectionMode = TIMER_SELECTION_MODE_PRESET;
-    state.selectedPresetIndex = index;
-  }
-
   syncTimerControlsFromState();
-  if (shouldApply) {
+  if (shouldApply && shouldPersist) {
     persistTimerSettings("Failed to save edited timer preset");
   }
 }
@@ -982,10 +1118,11 @@ function beginPresetEditing(index, button) {
 
   button.classList.add("is-editing");
   button.replaceChildren(input);
-  presetEditState = { index: presetIndex, button, input };
+  presetEditState = { index: presetIndex, button, input, syncTimeoutId: null };
 
   input.addEventListener("input", () => {
     input.value = input.value.replace(/[^\d]/g, "");
+    schedulePresetEditingSync();
   });
   input.addEventListener("keydown", (event) => {
     event.stopPropagation();
@@ -1001,7 +1138,7 @@ function beginPresetEditing(index, button) {
     }
   });
   input.addEventListener("blur", () => {
-    stopPresetEditing(false);
+    stopPresetEditing(true);
   });
 
   input.focus();
@@ -1181,6 +1318,9 @@ async function initializePopup() {
     void handleUnlockConfirmClick();
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
+  elements.urlList.addEventListener("input", handleUrlListInput);
+  elements.urlList.addEventListener("blur", handleUrlListBlur);
+  elements.urlList.addEventListener("change", handleUrlListBlur);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
@@ -1196,9 +1336,10 @@ async function initializePopup() {
   elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
   window.addEventListener("resize", renderPhraseTypingPreview);
   window.addEventListener("beforeunload", () => {
+    flushPendingUrlListSync();
     stopPresetEndTimeTicker();
     if (presetEditState) {
-      stopPresetEditing(false);
+      stopPresetEditing(true);
     }
   });
 

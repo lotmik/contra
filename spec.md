@@ -172,3 +172,23 @@ Prevent browser self-lockout loops during blocking by ensuring at least one non-
   - Keep only blocked/tamper tabs open and start blocking; verify at least one fallback tab survives.
   - Open `about:addons` or `about:debugging` while blocking; verify these pages are still closed immediately.
   - Open `about:newtab` during blocking; verify it is not force-closed.
+
+## Addendum: Debounced Settings Sync for URLs and Editable Timer Presets
+
+### Goal
+Make URL list and editable timer preset updates resilient and predictable, so typed values persist even if focus changes immediately.
+
+### Scope
+- Add debounced (`500ms`) autosave for URL textarea edits in both Blocklist and Whitelist modes.
+- Flush pending URL sync on blur/change/unload to reduce loss when focus leaves quickly.
+- Add debounced (`500ms`) autosave while editing preset timer buttons (double-click editor).
+- Commit valid timer preset edits on blur/unload/start-blocking without requiring `Enter`.
+- Keep existing fallback behavior for invalid/empty preset input (do not overwrite previous preset value).
+
+### Verification
+- `node --check popup.js`
+- Manual flow:
+  - Type in URL list and stop typing for at least `500ms`; reopen popup and verify value persisted.
+  - Type in URL list and click away immediately; verify list remains persisted.
+  - Double-click a timer preset, type a valid number, click away; verify preset value persists.
+  - Double-click preset, clear the editor and blur; verify previous preset value remains unchanged.
