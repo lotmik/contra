@@ -145,3 +145,30 @@ Replace timer mode switching with a single minimal model:
   - Double-click preset, edit value, press `Enter`, verify label updates and persists after reopen.
   - Enter end time manually and verify preset highlight clears.
   - Start blocking from preset mode and manual end-time mode; verify `timerMinutes` behaves correctly.
+
+## Addendum: Tab Survival Guard + System-Tab Allowance
+
+### Goal
+Prevent browser self-lockout loops during blocking by ensuring at least one non-blocked tab survives, while still aggressively blocking anti-tamper pages used to disable/remove the extension.
+
+### Scope
+- Always allow browser/system tabs that should not be treated as distractions (for example: `about:newtab`, `about:blank`, `about:home`, `about:privatebrowsing`, extension pages like `moz-extension://...`).
+- Continue blocking anti-tamper pages even though they are internal URLs:
+  - `about:addons`
+  - `about:debugging`
+  - `about:config`
+  - `about:policies`
+  - extension-management equivalents on Chromium-family browsers
+- Before force-closing any tab, detect whether that close would leave only tabs that are also about to be closed; if so, create a fallback tab first.
+- Apply the same guard in:
+  - event-driven tab enforcement (`onUpdated`, `onBeforeNavigate`, activation checks)
+  - startup sweep at `START_BLOCKING`
+  - aggressive anti-tamper interval sweep
+
+### Verification
+- `node --check background.js`
+- Manual flow:
+  - In whitelist mode, keep only non-whitelisted tabs open and start blocking; verify Firefox is not left with zero tabs.
+  - Keep only blocked/tamper tabs open and start blocking; verify at least one fallback tab survives.
+  - Open `about:addons` or `about:debugging` while blocking; verify these pages are still closed immediately.
+  - Open `about:newtab` during blocking; verify it is not force-closed.

@@ -79,16 +79,19 @@
                 </select>
               </div>
 
-              <div class="control-group">
-                <label for="unlock-phrase-setting">Unlock phrase</label>
-                <textarea
-                  id="unlock-phrase-setting"
-                  name="unlock-phrase-setting"
-                  rows="2"
-                  spellcheck="false"
-                  placeholder="I swear to God and to my future self that I don't want to ruin my cognitive abilities"
-                ></textarea>
-              </div>
+              <details id="unlock-phrase-setting-dropdown" class="settings-sub-dropdown">
+                <summary id="unlock-phrase-setting-summary">Unlock phrase</summary>
+                <div class="control-group">
+                  <label class="sr-only" for="unlock-phrase-setting">Unlock phrase</label>
+                  <textarea
+                    id="unlock-phrase-setting"
+                    name="unlock-phrase-setting"
+                    rows="2"
+                    spellcheck="false"
+                    placeholder="I swear to God and to my future self that I don't want to ruin my cognitive abilities"
+                  ></textarea>
+                </div>
+              </details>
 
               <div id="timer-settings-group" class="control-group">
                 <label for="timer-end-time">Timer (double click to edit)</label>

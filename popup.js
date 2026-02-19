@@ -69,6 +69,8 @@ const elements = {
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
   timerPresets: document.getElementById("timer-presets"),
+  unlockPhraseSettingDropdown: document.getElementById("unlock-phrase-setting-dropdown"),
+  unlockPhraseSettingSummary: document.getElementById("unlock-phrase-setting-summary"),
   unlockPhraseSettingInput: document.getElementById("unlock-phrase-setting"),
   timerPresetButtons: Array.from(document.querySelectorAll("#timer-presets .timer-preset-btn"))
 };
@@ -478,6 +480,15 @@ function updateTimerSettingsVisibility() {
   const showTimerSettings = state.unlockMode === "timer";
   elements.timerSettingsGroup.hidden = !showTimerSettings;
   elements.timerEndTimeInput.disabled = !showTimerSettings;
+
+  if (elements.unlockPhraseSettingDropdown) {
+    elements.unlockPhraseSettingDropdown.open = state.unlockMode === "phrase";
+  }
+
+  if (elements.unlockPhraseSettingSummary) {
+    elements.unlockPhraseSettingSummary.textContent =
+      state.unlockMode === "timer" ? "Pause phrase" : "Unlock phrase";
+  }
 }
 
 function setPhraseControls({ visible, label, disabled }) {
@@ -1073,6 +1084,14 @@ function handleUnlockPhraseSettingTyping() {
   autoResizeUnlockPhraseSettingField();
 }
 
+function handleUnlockPhraseSettingDropdownToggle() {
+  if (!elements.unlockPhraseSettingDropdown?.open) {
+    return;
+  }
+
+  autoResizeUnlockPhraseSettingField();
+}
+
 function handlePhraseInput() {
   const sanitized = sanitizeTypedPhraseInput(elements.unlockPhraseInput.value);
   if (sanitized !== elements.unlockPhraseInput.value) {
@@ -1166,6 +1185,7 @@ async function initializePopup() {
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
   elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingInput);
+  elements.unlockPhraseSettingDropdown?.addEventListener("toggle", handleUnlockPhraseSettingDropdownToggle);
   elements.timerEndTimeInput.addEventListener("input", handleTimerEndTimeInput);
   elements.timerEndTimeInput.addEventListener("change", handleTimerEndTimeChange);
   elements.timerPresets.addEventListener("click", handleTimerPresetClick);

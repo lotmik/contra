@@ -16,15 +16,38 @@ let aggressiveTamperIntervalId = null;
 const TAMPER_PAGES = [
   "about:addons",
   "about:debugging",
+  "about:config",
+  "about:policies",
+  "about:preferences",
   "about:preferences#addons",
   "chrome://extensions",
+  "chrome://policy",
   "chrome://settings/extensions",
   "edge://extensions",
+  "edge://policy",
   "edge://settings/extensions",
   "brave://extensions",
+  "brave://policy",
   "brave://settings/extensions",
   "opera://extensions",
+  "opera://policy",
   "vivaldi://extensions"
+];
+const SYSTEM_ALLOWED_URL_PREFIXES = [
+  "about:newtab",
+  "about:blank",
+  "about:home",
+  "about:privatebrowsing",
+  "about:welcome",
+  "about:sessionrestore",
+  "about:restartrequired",
+  "moz-extension://",
+  "chrome-extension://",
+  "chrome://newtab",
+  "edge://newtab",
+  "brave://newtab",
+  "vivaldi://newtab",
+  "opera://startpage"
 ];
 const ALARM_UNLOCK_TIMER = "unlockTimer";
 const ALARM_PAUSE_POSITIVE = "pausePositiveResume";
@@ -107,6 +130,19 @@ function isTamperUrl(url) {
   return TAMPER_PAGES.some((token) => lower.includes(token));
 }
 
+function isSystemAllowedUrl(url) {
+  if (typeof url !== "string") {
+    return false;
+  }
+
+  const lower = url.toLowerCase().trim();
+  if (!lower || isTamperUrl(lower)) {
+    return false;
+  }
+
+  return SYSTEM_ALLOWED_URL_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
+
 function urlMatchesRule(url, rule) {
   const lowerUrl = url.toLowerCase();
   if (lowerUrl.includes(rule)) {
@@ -126,11 +162,59 @@ function matchesAny(url, rules) {
 }
 
 function isViolation(url) {
+  if (isSystemAllowedUrl(url)) {
+    return false;
+  }
+
   if (mode === "allow") {
     return !matchesAny(url, whiteList);
   }
 
   return matchesAny(url, blockList);
+}
+
+function shouldCloseForBlocking(url) {
+  return isTamperUrl(url) || isViolation(url);
+}
+
+function shouldKeepTabOpen(tab) {
+  if (!Number.isInteger(tab?.id) || tab.id < 0) {
+    return true;
+  }
+
+  const url = getTabUrl(tab);
+  if (!url) {
+    return true;
+  }
+
+  return !shouldCloseForBlocking(url);
+}
+
+async function ensureSurvivorTab(excludedTabId) {
+  try {
+    const tabs = await browser.tabs.query({});
+    const remainingTabs = tabs.filter((tab) => tab.id !== excludedTabId);
+    if (remainingTabs.some((tab) => shouldKeepTabOpen(tab))) {
+      return;
+    }
+
+    await browser.tabs.create({ active: false });
+  } catch {
+    // Ignore fallback-tab errors; remove path handles failures safely.
+  }
+}
+
+async function closeTabWithSurvivor(tabId, url) {
+  if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
+    return;
+  }
+
+  if (!shouldCloseForBlocking(url)) {
+    return;
+  }
+
+  await ensureSurvivorTab(tabId);
+  await removeTabSafely(tabId);
 }
 
 function isPausePositiveActive() {
@@ -288,13 +372,7 @@ async function checkAndCloseTab(tabId, url) {
     return;
   }
 
-  if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
-    return;
-  }
-
-  if (isTamperUrl(url) || isViolation(url)) {
-    await removeTabSafely(tabId);
-  }
+  await closeTabWithSurvivor(tabId, url);
 }
 
 async function aggressivelyCloseTamperTab(tabId, url) {
@@ -302,7 +380,7 @@ async function aggressivelyCloseTamperTab(tabId, url) {
     return;
   }
 
-  await removeTabSafely(tabId);
+  await closeTabWithSurvivor(tabId, url);
 }
 
 async function aggressivelyCloseTamperTabsByQuery() {
@@ -312,7 +390,9 @@ async function aggressivelyCloseTamperTabsByQuery() {
 
   const tabs = await browser.tabs.query({});
   const tamperTabs = tabs.filter((tab) => isTamperUrl(tab.pendingUrl || tab.url));
-  await Promise.all(tamperTabs.map((tab) => removeTabSafely(tab.id)));
+  for (const tab of tamperTabs) {
+    await closeTabWithSurvivor(tab.id, getTabUrl(tab));
+  }
 }
 
 function stopAggressiveTamperMonitor() {
@@ -467,40 +547,36 @@ async function loadState() {
 
 async function enforceAllOpenTabs() {
   const tabs = await browser.tabs.query({});
-  await Promise.all(
-    tabs.map((tab) => {
-      const url = getTabUrl(tab);
-      return checkAndCloseTab(tab.id, url);
-    })
-  );
+  for (const tab of tabs) {
+    const url = getTabUrl(tab);
+    await checkAndCloseTab(tab.id, url);
+  }
 }
 
 async function enforceAllOpenTabsAtSessionStart() {
   const initialClosedTabs = [];
   try {
     const tabs = await browser.tabs.query({});
-    await Promise.all(
-      tabs.map(async (tab) => {
-        const tabId = tab.id;
-        const url = getTabUrl(tab);
-        if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
-          return;
-        }
+    for (const tab of tabs) {
+      const tabId = tab.id;
+      const url = getTabUrl(tab);
+      if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
+        continue;
+      }
 
-        if (!isTamperUrl(url) && !isViolation(url)) {
-          return;
-        }
+      if (!shouldCloseForBlocking(url)) {
+        continue;
+      }
 
-        if (isViolation(url)) {
-          const snapshot = createRecoverableClosedTabSnapshot(tab, url);
-          if (snapshot) {
-            initialClosedTabs.push(snapshot);
-          }
+      if (isViolation(url)) {
+        const snapshot = createRecoverableClosedTabSnapshot(tab, url);
+        if (snapshot) {
+          initialClosedTabs.push(snapshot);
         }
+      }
 
-        await removeTabSafely(tabId);
-      })
-    );
+      await closeTabWithSurvivor(tabId, url);
+    }
   } catch {
     // Keep blocking active even if a startup sweep fails unexpectedly.
   }

@@ -210,6 +210,59 @@ header,
   padding: 0;
 }
 
+.settings-sub-dropdown {
+  width: 100%;
+}
+
+.settings-sub-dropdown > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-sub-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-sub-dropdown > summary::after {
+  content: "";
+  width: 10px;
+  height: 6px;
+  flex: 0 0 auto;
+  background-repeat: no-repeat;
+  background-size: 10px 6px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a7a7a7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  transform: translateY(0) rotate(0deg);
+  transition: transform 120ms ease;
+}
+
+.settings-sub-dropdown[open] > summary::after {
+  transform: translateY(0) rotate(180deg);
+}
+
+.settings-sub-dropdown > summary:hover {
+  color: var(--text);
+}
+
+.settings-sub-dropdown > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.settings-sub-dropdown > .control-group {
+  margin-top: 6px;
+}
+
 .control-group {
   display: flex;
   flex-direction: column;
