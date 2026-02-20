@@ -1,6 +1,7 @@
 let isBlocking = false;
 let blockList = [];
 let whiteList = [];
+let adultContentBlockingEnabled = false;
 let mode = "block";
 let unlockMode = "timer";
 let timerMinutes = 25;
@@ -12,6 +13,8 @@ let pauseUntil = 0;
 let testDisableUntil = 0;
 let recoverableClosedTabs = [];
 let aggressiveTamperIntervalId = null;
+let adultDomainSet = null;
+let adultDomainLoadPromise = null;
 
 const TAMPER_PAGES = [
   "about:addons",
@@ -52,9 +55,16 @@ const SYSTEM_ALLOWED_URL_PREFIXES = [
 const ALARM_UNLOCK_TIMER = "unlockTimer";
 const ALARM_PAUSE_POSITIVE = "pausePositiveResume";
 const ALARM_TEST_DISABLE = "testDisableResume";
+const ALARM_ADULT_LIST_REFRESH = "adultListRefresh";
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
 const AGGRESSIVE_TAMPER_INTERVAL_MS = 100;
 const MAX_RECOVERABLE_CLOSED_TABS = 200;
+const ADULT_DOMAIN_LIST_PATH = "data/adult-domains.txt";
+const ADULT_LIST_REFRESH_INTERVAL_MINUTES = 15;
+const ADULT_LIST_FETCH_TIMEOUT_MS = 15000;
+const BON_APPETIT_REPO_CONTENTS_URL = "https://api.github.com/repos/Bon-Appetit/porn-domains/contents";
+const ANTI_PORN_HOSTS_URL =
+  "https://raw.githubusercontent.com/4skinSkywalker/Anti-Porn-HOSTS-File/main/HOSTS.txt";
 
 function sanitizeList(value) {
   if (!Array.isArray(value)) {
@@ -121,6 +131,214 @@ function sanitizeRecoverableClosedTabs(value) {
   return sanitized;
 }
 
+function sanitizeBoolean(value, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  return fallback;
+}
+
+function extractHostnameFromUrl(url) {
+  if (typeof url !== "string" || url.length === 0) {
+    return "";
+  }
+
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/\.+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeAdultDomain(domain) {
+  const normalized = String(domain || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\.+$/, "");
+  if (
+    normalized.length === 0 ||
+    normalized.length > 253 ||
+    !normalized.includes(".") ||
+    !/^[a-z0-9.-]+$/.test(normalized)
+  ) {
+    return "";
+  }
+
+  return normalized;
+}
+
+function parseAdultDomainSetFromText(rawText) {
+  const domains = new Set();
+  if (typeof rawText !== "string" || rawText.length === 0) {
+    return domains;
+  }
+
+  const lines = rawText.split(/\r?\n/);
+  for (const line of lines) {
+    const domain = sanitizeAdultDomain(line);
+    if (!domain) {
+      continue;
+    }
+    domains.add(domain);
+  }
+
+  return domains;
+}
+
+function parseAdultDomainSetFromHostsText(rawText) {
+  const domains = new Set();
+  if (typeof rawText !== "string" || rawText.length === 0) {
+    return domains;
+  }
+
+  const lines = rawText.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const columns = trimmed.split(/\s+/);
+    if (columns.length < 2) {
+      continue;
+    }
+
+    const domain = sanitizeAdultDomain(columns[1]);
+    if (!domain) {
+      continue;
+    }
+
+    domains.add(domain);
+  }
+
+  return domains;
+}
+
+async function fetchTextWithTimeout(url, timeoutMs = ADULT_LIST_FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      cache: "no-cache",
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP_${response.status}`);
+    }
+
+    return response.text();
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function resolveBonAppetitBlocklistUrl() {
+  const raw = await fetchTextWithTimeout(BON_APPETIT_REPO_CONTENTS_URL);
+  const entries = JSON.parse(raw);
+  if (!Array.isArray(entries)) {
+    throw new Error("BON_APPETIT_CONTENTS_INVALID");
+  }
+
+  const blockEntry = entries.find((entry) => {
+    const name = typeof entry?.name === "string" ? entry.name : "";
+    return /^block\..+\.txt$/i.test(name) && typeof entry?.download_url === "string";
+  });
+
+  if (!blockEntry?.download_url) {
+    throw new Error("BON_APPETIT_BLOCK_FILE_NOT_FOUND");
+  }
+
+  return blockEntry.download_url;
+}
+
+async function loadBundledAdultDomainSet() {
+  const rawText = await fetchTextWithTimeout(browser.runtime.getURL(ADULT_DOMAIN_LIST_PATH));
+  adultDomainSet = parseAdultDomainSetFromText(rawText);
+  return adultDomainSet;
+}
+
+async function refreshAdultDomainSetFromRemote() {
+  try {
+    const bonAppetitUrl = await resolveBonAppetitBlocklistUrl();
+    const [bonAppetitText, hostsText] = await Promise.all([
+      fetchTextWithTimeout(bonAppetitUrl),
+      fetchTextWithTimeout(ANTI_PORN_HOSTS_URL)
+    ]);
+
+    const nextSet = parseAdultDomainSetFromText(bonAppetitText);
+    for (const domain of parseAdultDomainSetFromHostsText(hostsText)) {
+      nextSet.add(domain);
+    }
+
+    if (nextSet.size > 0) {
+      adultDomainSet = nextSet;
+      return nextSet;
+    }
+  } catch (error) {
+    console.error("Failed to refresh adult domain blocklist from remote", error);
+  }
+
+  return adultDomainSet instanceof Set ? adultDomainSet : new Set();
+}
+
+async function ensureAdultDomainSetLoaded() {
+  if (adultDomainSet instanceof Set) {
+    return adultDomainSet;
+  }
+
+  if (adultDomainLoadPromise) {
+    return adultDomainLoadPromise;
+  }
+
+  adultDomainLoadPromise = (async () => {
+    try {
+      await loadBundledAdultDomainSet();
+    } catch (error) {
+      adultDomainSet = new Set();
+      console.error("Failed to load adult domain blocklist", error);
+    } finally {
+      adultDomainLoadPromise = null;
+    }
+
+    return adultDomainSet;
+  })();
+
+  return adultDomainLoadPromise;
+}
+
+async function setupAdultListRefreshAlarm() {
+  await browser.alarms.clear(ALARM_ADULT_LIST_REFRESH);
+  browser.alarms.create(ALARM_ADULT_LIST_REFRESH, {
+    periodInMinutes: ADULT_LIST_REFRESH_INTERVAL_MINUTES
+  });
+}
+
+function matchesAdultDomainRule(url) {
+  if (!adultContentBlockingEnabled || !(adultDomainSet instanceof Set) || adultDomainSet.size === 0) {
+    return false;
+  }
+
+  let candidate = extractHostnameFromUrl(url);
+  while (candidate.length > 0) {
+    if (adultDomainSet.has(candidate)) {
+      return true;
+    }
+
+    const separatorIndex = candidate.indexOf(".");
+    if (separatorIndex < 0) {
+      break;
+    }
+
+    candidate = candidate.slice(separatorIndex + 1);
+  }
+
+  return false;
+}
+
 function isTamperUrl(url) {
   if (typeof url !== "string") {
     return false;
@@ -164,6 +382,10 @@ function matchesAny(url, rules) {
 function isViolation(url) {
   if (isSystemAllowedUrl(url)) {
     return false;
+  }
+
+  if (matchesAdultDomainRule(url)) {
+    return true;
   }
 
   if (mode === "allow") {
@@ -427,6 +649,7 @@ async function persistState() {
     isBlocking,
     blockList,
     whiteList,
+    adultContentBlockingEnabled,
     mode,
     unlockMode,
     timerMinutes,
@@ -447,6 +670,10 @@ function applySettingsPayload(payload = {}) {
 
   if ("whiteList" in payload) {
     whiteList = sanitizeList(payload.whiteList);
+  }
+
+  if ("adultContentBlockingEnabled" in payload) {
+    adultContentBlockingEnabled = sanitizeBoolean(payload.adultContentBlockingEnabled, false);
   }
 
   if ("mode" in payload) {
@@ -476,6 +703,7 @@ async function loadState() {
     "isBlocking",
     "blockList",
     "whiteList",
+    "adultContentBlockingEnabled",
     "mode",
     "unlockMode",
     "timerMinutes",
@@ -498,6 +726,10 @@ async function loadState() {
 
   if (stored.whiteList !== undefined) {
     whiteList = sanitizeList(stored.whiteList);
+  }
+
+  if (stored.adultContentBlockingEnabled !== undefined) {
+    adultContentBlockingEnabled = sanitizeBoolean(stored.adultContentBlockingEnabled, false);
   }
 
   if (stored.mode !== undefined) {
@@ -616,6 +848,9 @@ async function setupTestDisableAlarm() {
 
 async function startBlockingSession(payload = {}) {
   applySettingsPayload(payload);
+  if (adultContentBlockingEnabled) {
+    await ensureAdultDomainSetLoaded();
+  }
 
   isBlocking = true;
   pauseUntil = 0;
@@ -768,6 +1003,11 @@ browser.tabs.onActivated.addListener((activeInfo) => {
 });
 
 browser.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_ADULT_LIST_REFRESH) {
+    void refreshAdultDomainSetFromRemote();
+    return;
+  }
+
   if (alarm.name === ALARM_UNLOCK_TIMER) {
     void (async () => {
       timerExpired = true;
@@ -833,7 +1073,14 @@ browser.runtime.onMessage.addListener((message = {}) => {
 
   if (type === "UPDATE_SETTINGS") {
     applySettingsPayload(payload);
-    return persistState()
+    return Promise.resolve()
+      .then(() => {
+        if (adultContentBlockingEnabled) {
+          return ensureAdultDomainSetLoaded();
+        }
+        return undefined;
+      })
+      .then(() => persistState())
       .then(() => {
         reconcileAggressiveTamperMonitor();
         if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {
@@ -849,6 +1096,10 @@ browser.runtime.onMessage.addListener((message = {}) => {
 
 void loadState()
   .then(async () => {
+    await setupAdultListRefreshAlarm();
+    await ensureAdultDomainSetLoaded();
+    void refreshAdultDomainSetFromRemote();
+
     await reconcileTimers();
     reconcileAggressiveTamperMonitor();
     if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {

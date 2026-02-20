@@ -230,3 +230,31 @@ Prepare the add-on for Mozilla Add-ons (AMO) publication with manifest and packa
 - `bash -n scripts/build-xpi.sh`
 - `scripts/build-xpi.sh`
 - Confirm `manifest.json` has `browser_specific_settings.gecko.data_collection_permissions.required` and no `gecko.update_url`.
+
+## Addendum: Optional Adult Content Blocking Toggle
+
+### Goal
+Add a dedicated settings checkbox that enables blocking against a very large built-in adult domain dataset (including mirrors/derivatives from upstream lists), without degrading baseline performance when disabled.
+
+### Scope
+- Popup settings:
+  - Add a checkbox: `Block adult content (large built-in list)`.
+  - Persist the setting as `adultContentBlockingEnabled` in `browser.storage.local`.
+- Background enforcement:
+  - Keep manual blocklist/whitelist behavior unchanged.
+  - When `adultContentBlockingEnabled` is true, treat adult-domain matches as violations.
+  - Use hostname suffix matching (`a.b.example.com` matches `example.com` in the adult set).
+  - Load bundled adult dataset at startup as baseline; then replace in-memory set with upstream refreshes.
+  - Refresh adult dataset from upstream sources on extension startup and every `15` minutes.
+- Data:
+  - Add generated `data/adult-domains.txt` from pinned upstream sources.
+  - Document sources and regeneration command in `docs/ADULT_BLOCKLIST_SOURCES.md`.
+
+### Verification
+- `node --check popup.js`
+- `node --check background.js`
+- `bash -n scripts/generate-adult-domains.sh`
+- Data sanity:
+  - Confirm `data/adult-domains.txt` exists and contains a large normalized set.
+  - Confirm enabling the checkbox includes adult-domain matching during blocking.
+  - Confirm background alarm `adultListRefresh` exists with `15` minute period.

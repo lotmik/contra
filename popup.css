@@ -292,6 +292,13 @@ header,
   gap: 6px;
 }
 
+.control-group-inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 label {
   color: var(--text-soft);
   font-size: 12px;
@@ -338,6 +345,13 @@ textarea {
 
 input[type="range"] {
   width: 100%;
+  accent-color: var(--accent);
+}
+
+.settings-checkbox {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
   accent-color: var(--accent);
 }
 

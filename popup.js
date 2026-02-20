@@ -12,6 +12,7 @@ const STORAGE_KEYS = [
   "mode",
   "blockList",
   "whiteList",
+  "adultContentBlockingEnabled",
   "unlockMode",
   "timerMinutes",
   "timerPresets",
@@ -34,6 +35,7 @@ const state = {
   mode: "block",
   blockList: [],
   whiteList: [],
+  adultContentBlockingEnabled: false,
   unlockMode: "timer",
   timerMinutes: DEFAULT_TIMER_PRESETS[1],
   timerPresets: [...DEFAULT_TIMER_PRESETS],
@@ -73,6 +75,7 @@ const elements = {
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
   urlListError: document.getElementById("url-list-error"),
+  adultContentToggle: document.getElementById("adult-content-toggle"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
@@ -766,6 +769,7 @@ function syncFormFromState() {
     elements.urlList.value = formattedActiveList;
   }
   setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
+  elements.adultContentToggle.checked = state.adultContentBlockingEnabled;
   elements.unlockModeSelect.value = state.unlockMode;
   updateTimerSettingsVisibility();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
@@ -775,6 +779,7 @@ function syncFormFromState() {
 
 function applyFormToState() {
   state.mode = sanitizeMode(elements.modeSelect.value);
+  state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
   state.unlockPhrase = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
 
@@ -799,6 +804,7 @@ async function saveStateToStorage() {
     mode: state.mode,
     blockList: state.blockList,
     whiteList: state.whiteList,
+    adultContentBlockingEnabled: state.adultContentBlockingEnabled,
     unlockMode: state.unlockMode,
     timerMinutes: state.timerMinutes,
     timerPresets: state.timerPresets,
@@ -821,6 +827,7 @@ async function loadStateFromStorage() {
   state.mode = sanitizeMode(stored.mode);
   state.blockList = sanitizeList(stored.blockList);
   state.whiteList = sanitizeList(stored.whiteList);
+  state.adultContentBlockingEnabled = stored.adultContentBlockingEnabled === true;
   state.unlockMode = sanitizeUnlockMode(stored.unlockMode);
 
   const storedTimerMinutes = clampTimerMinutes(Number(stored.timerMinutes));
@@ -966,6 +973,7 @@ function collectPayloadFromState() {
     mode: state.mode,
     blockList: state.blockList,
     whiteList: state.whiteList,
+    adultContentBlockingEnabled: state.adultContentBlockingEnabled,
     unlockMode: state.unlockMode,
     timerMinutes: state.timerMinutes,
     unlockPhrase: state.unlockPhrase,
@@ -1370,6 +1378,15 @@ function handleUnlockModeChange() {
   });
 }
 
+function handleAdultContentToggleChange() {
+  state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
+  void browser.storage.local
+    .set({ adultContentBlockingEnabled: state.adultContentBlockingEnabled })
+    .catch((error) => {
+      console.error("Failed to save adult content blocking setting", error);
+    });
+}
+
 function handleUnlockPhraseSettingInput() {
   const sanitized = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
   if (elements.unlockPhraseSettingInput.value !== sanitized) {
@@ -1488,6 +1505,7 @@ async function initializePopup() {
   elements.urlList.addEventListener("input", handleUrlListInput);
   elements.urlList.addEventListener("blur", handleUrlListBlur);
   elements.urlList.addEventListener("change", handleUrlListBlur);
+  elements.adultContentToggle.addEventListener("change", handleAdultContentToggleChange);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
