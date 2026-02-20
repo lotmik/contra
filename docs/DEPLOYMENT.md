@@ -1,93 +1,55 @@
-# Firefox Policy Deployment (Linux + sudo)
+# Contra Deployment Notes (Maintainers)
 
-## Versioning Rule
-Before each deployment:
-1. Increment `manifest.json` `version`.
-2. Rebuild XPI (`scripts/build-xpi.sh`).
-3. Install policy/XPI (`scripts/install-firefox-policy.sh`).
+This document is for maintainers releasing Contra to AMO and maintaining Hardcore Mode scripts.
 
-## One-Command Install
+End-user setup instructions are in the repository `README.md`.
+
+## Release checklist (AMO-first)
+1. Update `manifest.json` version.
+2. Run AMO readiness checks:
+   - `scripts/verify-amo-readiness.sh`
+3. Build package:
+   - `scripts/build-xpi.sh`
+4. Upload `dist/contra.xpi` to AMO listing.
+5. Verify live AMO listing installs correctly.
+
+## Hardcore script entrypoints
+Primary scripts:
+- `scripts/hardcore-install.sh` (Linux + macOS)
+- `scripts/hardcore-uninstall.sh` (Linux + macOS)
+- `scripts/hardcore-install.ps1` (Windows)
+- `scripts/hardcore-uninstall.ps1` (Windows)
+
+Compatibility wrappers (legacy names):
+- `scripts/install-firefox-policy.sh` -> forwards to `hardcore-install.sh`
+- `scripts/uninstall-firefox-policy.sh` -> forwards to `hardcore-uninstall.sh`
+
+## Hardcore policy scope
+Hardcore Mode is intentionally minimal and only sets Firefox policy for:
+- `policies.ExtensionSettings[contra@lotmik]`
+- `installation_mode: force_installed`
+
+No extra enterprise lock policies are applied.
+
+## Local maintainer checks
 ```bash
-scripts/install-firefox-policy.sh
+bash -n scripts/hardcore-install.sh
+bash -n scripts/hardcore-uninstall.sh
+bash -n scripts/install-firefox-policy.sh
+bash -n scripts/uninstall-firefox-policy.sh
+bash -n scripts/verify-firefox-policy.sh
 ```
 
-This policy setup is intentionally minimal: only `ExtensionSettings` force-install is applied.
-It does not block `about:addons`, `about:debugging`, or `about:config`.
-If you installed an older template, run the install command again to rewrite `/etc/firefox/policies/policies.json`.
-
-## Verify
-```bash
-scripts/verify-firefox-policy.sh
+Windows script syntax check (when PowerShell is available):
+```powershell
+powershell -NoProfile -Command "[System.Management.Automation.Language.Parser]::ParseFile('scripts/hardcore-install.ps1',[ref]$null,[ref]$null) | Out-Null"
+powershell -NoProfile -Command "[System.Management.Automation.Language.Parser]::ParseFile('scripts/hardcore-uninstall.ps1',[ref]$null,[ref]$null) | Out-Null"
 ```
 
-Then in Firefox:
-1. Restart Firefox completely.
-2. Open `about:policies`.
-3. Confirm policy status is Active and `ExtensionSettings` includes `contra@local`.
-
-## Update Flow
-1. Bump `manifest.json` version.
-2. Run `scripts/install-firefox-policy.sh`.
+## Manual smoke flow
+1. Install Contra from AMO.
+2. Run Hardcore install script as admin.
 3. Restart Firefox.
-4. Run `scripts/verify-firefox-policy.sh`.
-
-## Rollback Flow
-1. List backups:
-   - `sudo ls -1 /opt/contra/releases`
-2. Restore a backup:
-   - `sudo cp /opt/contra/releases/contra-YYYYMMDDHHMMSS.xpi /opt/contra/contra.xpi`
-   - `sudo chmod 0444 /opt/contra/contra.xpi`
-3. Restart Firefox.
-4. Re-run verification.
-
-## Emergency Admin Unlock
-```bash
-sudo rm -f /etc/firefox/policies/policies.json
-```
-
-Then restart Firefox.
-
-## One-Command Uninstall/Revert
-```bash
-scripts/uninstall-firefox-policy.sh
-```
-
-Optional flags:
-- `--no-restore-backup`: remove policy and skip backup restore.
-- `--keep-managed-xpi`: keep `/opt/contra/contra.xpi` in place.
-
-## Local Dev Convenience (Unsigned, Persistent Profile)
-Use this only for local development on Firefox Developer Edition/Nightly.
-
-```bash
-scripts/dev-local-firefox.sh
-```
-
-What it does:
-1. Creates/uses dedicated profile: `~/.mozilla/firefox/contra-dev-profile`
-2. Writes `user.js` with unsigned-addon dev prefs
-3. Opens Firefox at `about:addons`
-
-Then install once in that profile:
-1. Gear icon -> Install Add-on From File...
-2. Choose `dist/contra.xpi`
-
-Notes:
-- Build XPI first: `scripts/build-xpi.sh`
-- Release Firefox usually requires signed add-ons regardless of the dev pref.
-- This mode is for development convenience, not policy lock.
-
-# 1) Download latest Developer Edition
-cd /tmp
-curl -L -o firefox-devedition.tar.bz2 "https://download.mozilla.org/?product=firefox-devedition-latest&os=linux64&lang=en-US"
-
-# 2) Install under /opt
-sudo rm -rf /opt/firefox-developer
-sudo mkdir -p /opt/firefox-developer
-sudo tar -xjf firefox-devedition.tar.bz2 -C /opt/firefox-developer --strip-components=1
-
-# 3) Create launcher command
-sudo ln -sf /opt/firefox-developer/firefox /usr/local/bin/firefox-developer-edition
-
-# 4) Check it works
-firefox-developer-edition --version
+4. Confirm `about:policies` is Active and shows `contra@lotmik` force-installed.
+5. Run uninstall script as admin.
+6. Restart Firefox and confirm Contra policy entry is removed.

@@ -1,118 +1,241 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_XPI="/opt/contra/contra.xpi"
-POLICY_FILE="/etc/firefox/policies/policies.json"
-EXPECTED_INSTALL_URL="file:///opt/contra/contra.xpi"
-HAS_RG=false
+DEFAULT_ADDON_ID="contra@lotmik"
+addon_id="${DEFAULT_ADDON_ID}"
+install_url=""
+firefox_path=""
+policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 
-failures=0
+usage() {
+  cat <<'USAGE'
+Usage: scripts/verify-firefox-policy.sh [options]
 
-if command -v rg >/dev/null 2>&1; then
-  HAS_RG=true
-fi
+Verify Firefox enterprise policy for Contra Hardcore Mode.
 
-check_exists() {
-  local path="$1"
-  if [[ -e "${path}" ]]; then
-    echo "OK: ${path} exists"
-  else
-    echo "FAIL: ${path} does not exist"
-    failures=$((failures + 1))
-  fi
+Options:
+  --addon-id ID            Add-on ID to verify (default: contra@lotmik)
+  --install-url URL        Expected install URL (default: AMO latest URL from add-on ID)
+  --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
+  -h, --help               Show help
+USAGE
 }
 
-check_owner_group() {
-  local path="$1"
-  local owner_group
-  owner_group="$(stat -c '%U:%G' "${path}")"
-  if [[ "${owner_group}" == "root:root" ]]; then
-    echo "OK: ${path} owned by root:root"
-  else
-    echo "FAIL: ${path} owner/group is ${owner_group}, expected root:root"
-    failures=$((failures + 1))
-  fi
+url_encode() {
+  local raw="$1"
+  local encoded=""
+  local index ch hex
+
+  for ((index = 0; index < ${#raw}; index += 1)); do
+    ch="${raw:index:1}"
+    case "${ch}" in
+      [a-zA-Z0-9.~_-])
+        encoded+="${ch}"
+        ;;
+      *)
+        printf -v hex '%%%02X' "'${ch}"
+        encoded+="${hex}"
+        ;;
+    esac
+  done
+
+  printf '%s' "${encoded}"
 }
 
-check_mode() {
-  local path="$1"
-  local expected="$2"
-  local actual
-  actual="$(stat -c '%a' "${path}")"
-  if [[ "${actual}" == "${expected}" ]]; then
-    echo "OK: ${path} mode ${actual}"
-  else
-    echo "FAIL: ${path} mode ${actual}, expected ${expected}"
-    failures=$((failures + 1))
-  fi
+build_default_install_url() {
+  local target_addon_id="$1"
+  local encoded
+  encoded="$(url_encode "${target_addon_id}")"
+  printf 'https://addons.mozilla.org/firefox/downloads/latest/%s/latest.xpi' "${encoded}"
 }
 
-check_file_contains() {
-  local path="$1"
-  local token="$2"
-  if [[ "${HAS_RG}" == true ]] && rg -Fq "${token}" "${path}"; then
-    echo "OK: ${path} contains ${token}"
-  elif [[ "${HAS_RG}" == false ]] && grep -Fq "${token}" "${path}"; then
-    echo "OK: ${path} contains ${token}"
-  else
-    echo "FAIL: ${path} is missing ${token}"
-    failures=$((failures + 1))
-  fi
+is_perl_jsonpp_available() {
+  command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
-check_file_not_contains() {
-  local path="$1"
-  local token="$2"
-  if [[ "${HAS_RG}" == true ]] && rg -Fq "${token}" "${path}"; then
-    echo "FAIL: ${path} contains forbidden token ${token}"
-    failures=$((failures + 1))
-  elif [[ "${HAS_RG}" == false ]] && grep -Fq "${token}" "${path}"; then
-    echo "FAIL: ${path} contains forbidden token ${token}"
-    failures=$((failures + 1))
-  else
-    echo "OK: ${path} does not contain ${token}"
+resolve_policy_file() {
+  local os_name="$1"
+
+  if [[ -n "${policy_file_override}" ]]; then
+    printf '%s' "${policy_file_override}"
+    return 0
   fi
+
+  if [[ "${os_name}" == "Linux" ]]; then
+    printf '%s' '/etc/firefox/policies/policies.json'
+    return 0
+  fi
+
+  if [[ "${os_name}" != "Darwin" ]]; then
+    echo "Unsupported operating system: ${os_name}" >&2
+    echo "Use scripts/hardcore-install.ps1 on Windows." >&2
+    return 1
+  fi
+
+  local app_path=""
+  if [[ -n "${firefox_path}" ]]; then
+    case "${firefox_path}" in
+      *.app)
+        app_path="${firefox_path}"
+        ;;
+      */Contents/MacOS/firefox)
+        app_path="${firefox_path%/Contents/MacOS/firefox}"
+        ;;
+      */Contents/Resources/distribution)
+        app_path="${firefox_path%/Contents/Resources/distribution}"
+        ;;
+      *)
+        if [[ -d "${firefox_path}/Contents/Resources" ]]; then
+          app_path="${firefox_path}"
+        fi
+        ;;
+    esac
+  fi
+
+  if [[ -z "${app_path}" ]]; then
+    local candidates=(
+      "/Applications/Firefox.app"
+      "/Applications/Firefox Developer Edition.app"
+      "/Applications/Firefox Nightly.app"
+    )
+    local candidate
+    for candidate in "${candidates[@]}"; do
+      if [[ -d "${candidate}" ]]; then
+        app_path="${candidate}"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "${app_path}" ]]; then
+    echo "Could not locate Firefox.app." >&2
+    echo "Pass --firefox-path '/Applications/Firefox.app' (or your custom Firefox .app path)." >&2
+    return 1
+  fi
+
+  printf '%s' "${app_path}/Contents/Resources/distribution/policies.json"
 }
 
-check_not_user_writable() {
-  local path="$1"
-  if [[ -w "${path}" ]]; then
-    echo "FAIL: current user can write ${path}"
-    failures=$((failures + 1))
-  else
-    echo "OK: current user cannot write ${path}"
-  fi
-}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --addon-id)
+      addon_id="${2:-}"
+      shift 2
+      ;;
+    --addon-id=*)
+      addon_id="${1#*=}"
+      shift
+      ;;
+    --install-url)
+      install_url="${2:-}"
+      shift 2
+      ;;
+    --install-url=*)
+      install_url="${1#*=}"
+      shift
+      ;;
+    --firefox-path)
+      firefox_path="${2:-}"
+      shift 2
+      ;;
+    --firefox-path=*)
+      firefox_path="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
-check_exists "${TARGET_XPI}"
-check_exists "${POLICY_FILE}"
-
-if [[ -e "${TARGET_XPI}" ]]; then
-  check_owner_group "${TARGET_XPI}"
-  check_mode "${TARGET_XPI}" "444"
-  check_not_user_writable "${TARGET_XPI}"
-fi
-
-if [[ -e "${POLICY_FILE}" ]]; then
-  check_owner_group "${POLICY_FILE}"
-  check_mode "${POLICY_FILE}" "644"
-  check_not_user_writable "${POLICY_FILE}"
-  check_file_contains "${POLICY_FILE}" "\"contra@local\""
-  check_file_contains "${POLICY_FILE}" "\"installation_mode\": \"force_installed\""
-  check_file_contains "${POLICY_FILE}" "\"install_url\": \"${EXPECTED_INSTALL_URL}\""
-  check_file_not_contains "${POLICY_FILE}" "\"BlockAboutAddons\": true"
-  check_file_not_contains "${POLICY_FILE}" "\"BlockAboutConfig\": true"
-  check_file_not_contains "${POLICY_FILE}" "\"DisableSafeMode\": true"
-  check_file_not_contains "${POLICY_FILE}" "\"DisableDeveloperTools\": true"
-fi
-
-if [[ "${failures}" -gt 0 ]]; then
-  echo
-  echo "Verification failed with ${failures} issue(s)."
-  echo "Also verify runtime policy status in Firefox: about:policies"
+if [[ -z "${addon_id}" ]]; then
+  echo "--addon-id cannot be empty." >&2
   exit 1
 fi
 
-echo
-echo "Verification passed."
-echo "Still verify Firefox runtime policy status in about:policies."
+if [[ -z "${install_url}" ]]; then
+  install_url="$(build_default_install_url "${addon_id}")"
+fi
+
+os_name="$(uname -s)"
+policy_file="$(resolve_policy_file "${os_name}")"
+
+echo "Policy file: ${policy_file}"
+echo "Add-on ID: ${addon_id}"
+echo "Expected install URL: ${install_url}"
+
+if [[ ! -f "${policy_file}" ]]; then
+  echo "FAIL: policy file does not exist." >&2
+  exit 1
+fi
+
+if is_perl_jsonpp_available; then
+  perl -MJSON::PP -e '
+use strict;
+use warnings;
+
+my ($path, $addon_id, $install_url) = @ARGV;
+open my $fh, "<", $path or die "FAIL: could not read $path\n";
+local $/;
+my $raw = <$fh>;
+close $fh;
+
+my $data = eval { JSON::PP::decode_json($raw) };
+if ($@) {
+  die "FAIL: policies.json is invalid JSON\n";
+}
+
+if (ref($data) ne "HASH") {
+  die "FAIL: policies.json top-level is not a JSON object\n";
+}
+
+my $settings = $data->{policies}->{ExtensionSettings};
+if (ref($settings) ne "HASH") {
+  die "FAIL: missing policies.ExtensionSettings object\n";
+}
+
+my $entry = $settings->{$addon_id};
+if (ref($entry) ne "HASH") {
+  die "FAIL: missing ExtensionSettings entry for $addon_id\n";
+}
+
+if (($entry->{installation_mode} // "") ne "force_installed") {
+  die "FAIL: installation_mode is not force_installed\n";
+}
+
+if (($entry->{install_url} // "") ne $install_url) {
+  die "FAIL: install_url does not match expected URL\n";
+}
+
+print "PASS: policies.json is valid and Contra force-install policy is active.\n";
+' "${policy_file}" "${addon_id}" "${install_url}"
+else
+  echo "WARN: Perl JSON::PP not available; running basic fallback checks only." >&2
+
+  if ! grep -Fq '"ExtensionSettings"' "${policy_file}"; then
+    echo "FAIL: missing ExtensionSettings in ${policy_file}" >&2
+    exit 1
+  fi
+  if ! grep -Fq "\"${addon_id}\"" "${policy_file}"; then
+    echo "FAIL: missing add-on entry ${addon_id} in ${policy_file}" >&2
+    exit 1
+  fi
+  if ! grep -Fq '"installation_mode": "force_installed"' "${policy_file}"; then
+    echo "FAIL: installation_mode is not force_installed" >&2
+    exit 1
+  fi
+  if ! grep -Fq "\"install_url\": \"${install_url}\"" "${policy_file}"; then
+    echo "FAIL: install_url mismatch in ${policy_file}" >&2
+    exit 1
+  fi
+
+  echo "PASS: basic policy checks passed (JSON parser unavailable for deep validation)."
+fi
+
+echo "Manual confirmation: restart Firefox and verify about:policies shows Active."

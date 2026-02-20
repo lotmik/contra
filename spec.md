@@ -6,7 +6,7 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 ## Scope
 - Add operational tooling to build an XPI package.
 - Add operational tooling to install and verify Firefox root-owned policies.
-- Add policy template for force-installing `contra@local`.
+- Add policy template for force-installing `contra@lotmik`.
 - Keep anti-tamper blocking of extension-management pages active.
 
 ## Out of Scope

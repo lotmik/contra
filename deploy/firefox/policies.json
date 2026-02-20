@@ -1,7 +1,7 @@
 {
   "policies": {
     "ExtensionSettings": {
-      "contra@local": {
+      "contra@lotmik": {
         "installation_mode": "force_installed",
         "install_url": "__CONTRA_INSTALL_URL__"
       }
