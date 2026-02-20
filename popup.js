@@ -1,12 +1,13 @@
 "use strict";
 
-const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that I don't want to ruin my cognitive abilities";
+const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that my internet usage will not ruin my cognitive abilities or stop me from achieving my life goals";
 const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
 const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
+const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
@@ -36,6 +37,7 @@ const state = {
   blockList: [],
   whiteList: [],
   adultContentBlockingEnabled: false,
+  adultContentForcedByPolicy: false,
   unlockMode: "timer",
   timerMinutes: DEFAULT_TIMER_PRESETS[1],
   timerPresets: [...DEFAULT_TIMER_PRESETS],
@@ -75,6 +77,7 @@ const elements = {
   modeSelect: document.getElementById("mode-select"),
   urlList: document.getElementById("url-list"),
   urlListError: document.getElementById("url-list-error"),
+  adultContentControl: document.getElementById("adult-content-control"),
   adultContentToggle: document.getElementById("adult-content-toggle"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
@@ -104,6 +107,14 @@ function sanitizeList(value) {
     .filter((item) => item.length > 0);
 
   return [...new Set(normalized)];
+}
+
+function resolveManagedAdultPolicyFlag(value) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return MANAGED_POLICY_FORCE_ADULT_KEYS.some((key) => value[key] === true);
 }
 
 function clampTimerMinutes(value) {
@@ -769,7 +780,11 @@ function syncFormFromState() {
     elements.urlList.value = formattedActiveList;
   }
   setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
+  if (elements.adultContentControl) {
+    elements.adultContentControl.hidden = state.adultContentForcedByPolicy;
+  }
   elements.adultContentToggle.checked = state.adultContentBlockingEnabled;
+  elements.adultContentToggle.disabled = state.adultContentForcedByPolicy;
   elements.unlockModeSelect.value = state.unlockMode;
   updateTimerSettingsVisibility();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
@@ -779,7 +794,9 @@ function syncFormFromState() {
 
 function applyFormToState() {
   state.mode = sanitizeMode(elements.modeSelect.value);
-  state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
+  state.adultContentBlockingEnabled = state.adultContentForcedByPolicy
+    ? true
+    : elements.adultContentToggle.checked === true;
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
   state.unlockPhrase = sanitizeUnlockPhrase(elements.unlockPhraseSettingInput.value);
 
@@ -866,6 +883,28 @@ async function loadStateFromStorage() {
     typeof stored.pausePositiveEnabled === "boolean" ? stored.pausePositiveEnabled : true;
   state.pauseUntil = Number.isFinite(stored.pauseUntil) ? stored.pauseUntil : 0;
   state.testDisableUntil = Number.isFinite(stored.testDisableUntil) ? stored.testDisableUntil : 0;
+
+  if (state.adultContentForcedByPolicy) {
+    state.adultContentBlockingEnabled = true;
+  }
+}
+
+async function loadManagedPolicyFromStorage() {
+  try {
+    if (!browser?.storage?.managed?.get) {
+      state.adultContentForcedByPolicy = false;
+      return;
+    }
+
+    const managed = await browser.storage.managed.get(null);
+    state.adultContentForcedByPolicy = resolveManagedAdultPolicyFlag(managed);
+  } catch {
+    state.adultContentForcedByPolicy = false;
+  }
+
+  if (state.adultContentForcedByPolicy) {
+    state.adultContentBlockingEnabled = true;
+  }
 }
 
 function updateLockedChallenge() {
@@ -918,7 +957,7 @@ function updateLockedChallenge() {
   const phraseMatches = phraseInput === expectedPhrase;
   setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
   elements.unlockConfirmButton.textContent = "Confirm";
-  updateStatus("Locked: phrase required");
+  updateStatus("Phrase required");
 }
 
 function stopTimerTick() {
@@ -1379,6 +1418,12 @@ function handleUnlockModeChange() {
 }
 
 function handleAdultContentToggleChange() {
+  if (state.adultContentForcedByPolicy) {
+    state.adultContentBlockingEnabled = true;
+    syncFormFromState();
+    return;
+  }
+
   state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
   void browser.storage.local
     .set({ adultContentBlockingEnabled: state.adultContentBlockingEnabled })
@@ -1454,8 +1499,18 @@ function handleUnlockPhraseKeydown(event) {
   void handleUnlockConfirmClick();
 }
 
+function handleUnlockPhrasePaste(event) {
+  event.preventDefault();
+}
+
+function handleUnlockPhraseBeforeInput(event) {
+  if (event.inputType === "insertFromPaste" || event.inputType === "insertFromDrop") {
+    event.preventDefault();
+  }
+}
+
 function refreshFromStorage() {
-  void loadStateFromStorage()
+  void Promise.all([loadStateFromStorage(), loadManagedPolicyFromStorage()])
     .then(() => {
       syncFormFromState();
       renderUi();
@@ -1466,14 +1521,19 @@ function refreshFromStorage() {
 }
 
 function handleStorageChanged(changes, areaName) {
-  if (areaName !== "local") {
+  if (areaName === "managed") {
+    if (MANAGED_POLICY_FORCE_ADULT_KEYS.some((key) => key in changes)) {
+      refreshFromStorage();
+    }
     return;
   }
 
-  for (const key of STORAGE_KEYS) {
-    if (key in changes) {
-      refreshFromStorage();
-      return;
+  if (areaName === "local") {
+    for (const key of STORAGE_KEYS) {
+      if (key in changes) {
+        refreshFromStorage();
+        return;
+      }
     }
   }
 }
@@ -1492,6 +1552,7 @@ function handleRuntimeMessage(message = {}) {
 
 async function initializePopup() {
   await loadStateFromStorage();
+  await loadManagedPolicyFromStorage();
   syncFormFromState();
   renderUi();
 
@@ -1517,6 +1578,9 @@ async function initializePopup() {
   elements.timerPresets.addEventListener("dblclick", handleTimerPresetDoubleClick);
   elements.unlockPhraseInput.addEventListener("input", handlePhraseInput);
   elements.unlockPhraseInput.addEventListener("keydown", handleUnlockPhraseKeydown);
+  elements.unlockPhraseInput.addEventListener("paste", handleUnlockPhrasePaste);
+  elements.unlockPhraseInput.addEventListener("beforeinput", handleUnlockPhraseBeforeInput);
+  elements.unlockPhraseInput.addEventListener("drop", handleUnlockPhrasePaste);
   elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
   elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
   window.addEventListener("resize", renderPhraseTypingPreview);

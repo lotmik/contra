@@ -10,6 +10,8 @@ yes_mode=false
 firefox_path=""
 policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 skip_admin_check="${CONTRA_SKIP_ADMIN_CHECK:-0}"
+force_adult_block=false
+force_adult_block_explicit=false
 
 step() {
   local index="$1"
@@ -28,6 +30,8 @@ Options:
   --install-url URL        Install URL used in policy (default: AMO latest URL from add-on ID)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
+  --adult                  Force-enable adult blocking via enterprise policy (hides toggle in UI)
+  --no-adult               Do not set force adult policy flag
   --yes, -y                Non-interactive mode (use selected/default options)
   -h, --help               Show help
 USAGE
@@ -190,6 +194,30 @@ render_target_policy_json() {
   addon_id_escaped="$(json_escape "${addon_id}")"
   install_url_escaped="$(json_escape "${install_url}")"
 
+  if [[ "${force_adult_block}" == true ]]; then
+    cat > "${output_file}" <<EOF_JSON
+{
+  "policies": {
+    "ExtensionSettings": {
+      "${addon_id_escaped}": {
+        "installation_mode": "force_installed",
+        "install_url": "${install_url_escaped}",
+        "private_browsing": true
+      }
+    },
+    "3rdparty": {
+      "Extensions": {
+        "${addon_id_escaped}": {
+          "forceAdultBlock": true
+        }
+      }
+    }
+  }
+}
+EOF_JSON
+    return 0
+  fi
+
   cat > "${output_file}" <<EOF_JSON
 {
   "policies": {
@@ -208,12 +236,14 @@ EOF_JSON
 merge_policy_json_with_existing() {
   local existing_policy_file="$1"
   local merged_output_file="$2"
+  local force_adult_flag="$3"
+  local force_adult_explicit_flag="$4"
 
   perl -MJSON::PP -e '
 use strict;
 use warnings;
 
-my ($existing_path, $addon_id, $install_url, $output_path) = @ARGV;
+my ($existing_path, $addon_id, $install_url, $force_adult_flag, $force_adult_explicit_flag, $output_path) = @ARGV;
 
 open my $existing_fh, "<", $existing_path or die "Failed to read existing policy: $existing_path\n";
 local $/;
@@ -240,14 +270,44 @@ $data->{policies}->{ExtensionSettings}->{$addon_id} = {
   private_browsing => JSON::PP::true,
 };
 
+if ($force_adult_flag eq "true") {
+  $data->{policies}->{"3rdparty"} = {}
+    if !exists $data->{policies}->{"3rdparty"} || ref($data->{policies}->{"3rdparty"}) ne "HASH";
+  $data->{policies}->{"3rdparty"}->{Extensions} = {}
+    if !exists $data->{policies}->{"3rdparty"}->{Extensions} || ref($data->{policies}->{"3rdparty"}->{Extensions}) ne "HASH";
+
+  my $extension_data = $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id};
+  $extension_data = {} if ref($extension_data) ne "HASH";
+  $extension_data->{forceAdultBlock} = JSON::PP::true;
+  $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id} = $extension_data;
+} elsif ($force_adult_explicit_flag eq "true") {
+  if (
+    ref($data->{policies}->{"3rdparty"}) eq "HASH" &&
+    ref($data->{policies}->{"3rdparty"}->{Extensions}) eq "HASH" &&
+    ref($data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id}) eq "HASH"
+  ) {
+    delete $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id}->{forceAdultBlock};
+    if (!keys %{ $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id} }) {
+      delete $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id};
+    }
+    if (!keys %{ $data->{policies}->{"3rdparty"}->{Extensions} }) {
+      delete $data->{policies}->{"3rdparty"}->{Extensions};
+    }
+    if (!keys %{ $data->{policies}->{"3rdparty"} }) {
+      delete $data->{policies}->{"3rdparty"};
+    }
+  }
+}
+
 open my $out_fh, ">", $output_path or die "Failed to write merged policy output.\n";
 print {$out_fh} JSON::PP->new->utf8->canonical->pretty->encode($data);
 close $out_fh or die "Failed to finalize merged policy output.\n";
-' "${existing_policy_file}" "${addon_id}" "${install_url}" "${merged_output_file}"
+' "${existing_policy_file}" "${addon_id}" "${install_url}" "${force_adult_flag}" "${force_adult_explicit_flag}" "${merged_output_file}"
 }
 
 verify_policy_install() {
   local policy_file="$1"
+  local expect_force_adult_flag="$2"
 
   if [[ ! -f "${policy_file}" ]]; then
     echo "FAIL: policy file missing at ${policy_file}" >&2
@@ -259,7 +319,7 @@ verify_policy_install() {
 use strict;
 use warnings;
 
-my ($path, $addon_id, $install_url) = @ARGV;
+my ($path, $addon_id, $install_url, $expect_force_adult_flag) = @ARGV;
 
 open my $fh, "<", $path or die "FAIL: could not read $path\n";
 local $/;
@@ -297,8 +357,24 @@ if (!($entry->{private_browsing} // 0)) {
   die "FAIL: private_browsing is not true\n";
 }
 
+if ($expect_force_adult_flag eq "true") {
+  my $extensions = $data->{policies}->{"3rdparty"}->{Extensions};
+  if (ref($extensions) ne "HASH") {
+    die "FAIL: missing policies.3rdparty.Extensions for forced adult policy\n";
+  }
+
+  my $managed = $extensions->{$addon_id};
+  if (ref($managed) ne "HASH") {
+    die "FAIL: missing managed policy block for $addon_id\n";
+  }
+
+  if (!($managed->{forceAdultBlock} // 0)) {
+    die "FAIL: forceAdultBlock is not true in managed policy\n";
+  }
+}
+
 print "PASS: policies.json is valid and Contra force-install policy is active.\n";
-' "${policy_file}" "${addon_id}" "${install_url}"
+' "${policy_file}" "${addon_id}" "${install_url}" "${expect_force_adult_flag}"
     return 0
   fi
 
@@ -322,6 +398,21 @@ print "PASS: policies.json is valid and Contra force-install policy is active.\n
   if ! grep -Eq '"private_browsing"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
     echo "FAIL: private_browsing is not true in ${policy_file}" >&2
     return 1
+  fi
+
+  if [[ "${expect_force_adult_flag}" == "true" ]]; then
+    if ! grep -Fq '"3rdparty"' "${policy_file}"; then
+      echo "FAIL: missing 3rdparty policy section in ${policy_file}" >&2
+      return 1
+    fi
+    if ! grep -Fq "\"${addon_id}\"" "${policy_file}"; then
+      echo "FAIL: missing managed add-on entry ${addon_id} in ${policy_file}" >&2
+      return 1
+    fi
+    if ! grep -Eq '"forceAdultBlock"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
+      echo "FAIL: forceAdultBlock is not true in ${policy_file}" >&2
+      return 1
+    fi
   fi
 
   echo "PASS: basic policy checks passed (JSON parser unavailable for deep validation)."
@@ -369,6 +460,16 @@ while [[ $# -gt 0 ]]; do
       ;;
     --yes|-y)
       yes_mode=true
+      shift
+      ;;
+    --adult)
+      force_adult_block=true
+      force_adult_block_explicit=true
+      shift
+      ;;
+    --no-adult)
+      force_adult_block=false
+      force_adult_block_explicit=true
       shift
       ;;
     -h|--help)
@@ -432,6 +533,7 @@ policy_dir="$(dirname "${policy_file}")"
 echo "Policy file target: ${policy_file}"
 echo "Add-on ID: ${addon_id}"
 echo "Install URL: ${install_url}"
+echo "Force adult policy: ${force_adult_block}"
 
 step 3 "Preparing Contra policy payload"
 work_dir="$(mktemp -d)"
@@ -479,7 +581,11 @@ if [[ -f "${policy_file}" ]]; then
         fi
         cp "${target_policy_json}" "${final_policy_json}"
       else
-        merge_policy_json_with_existing "${policy_file}" "${final_policy_json}"
+        merge_policy_json_with_existing \
+          "${policy_file}" \
+          "${final_policy_json}" \
+          "${force_adult_block}" \
+          "${force_adult_block_explicit}"
       fi
       ;;
   esac
@@ -492,7 +598,7 @@ install -d -m 0755 "${policy_dir}"
 install -m 0644 "${final_policy_json}" "${policy_file}"
 
 step 6 "Verifying installation"
-verify_policy_install "${policy_file}"
+verify_policy_install "${policy_file}" "${force_adult_block}"
 
 echo
 echo "Hardcore Mode install complete."

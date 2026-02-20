@@ -23,6 +23,10 @@ Runtime refresh behavior:
 - Automatic refresh: every `15` minutes via background alarm (`adultListRefresh`).
 - If remote refresh fails, the last loaded in-memory set remains active.
 
+Enterprise forced mode:
+- Firefox policy key: `policies.3rdparty.Extensions["contra@lotmik"].forceAdultBlock: true`
+- Effect: adult blocking is always enforced (even with the normal block toggle off) and the popup adult toggle is hidden.
+
 Latest generation in this workspace (2026-02-20):
 - Unique normalized domains: `763990`
 - File size: `15792394` bytes

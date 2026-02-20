@@ -15,6 +15,7 @@ let recoverableClosedTabs = [];
 let aggressiveTamperIntervalId = null;
 let adultDomainSet = null;
 let adultDomainLoadPromise = null;
+let adultContentForcedByPolicy = false;
 
 const TAMPER_PAGES = [
   "about:addons",
@@ -65,6 +66,7 @@ const ADULT_LIST_FETCH_TIMEOUT_MS = 15000;
 const BON_APPETIT_REPO_CONTENTS_URL = "https://api.github.com/repos/Bon-Appetit/porn-domains/contents";
 const ANTI_PORN_HOSTS_URL =
   "https://raw.githubusercontent.com/4skinSkywalker/Anti-Porn-HOSTS-File/main/HOSTS.txt";
+const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
 
 function sanitizeList(value) {
   if (!Array.isArray(value)) {
@@ -137,6 +139,18 @@ function sanitizeBoolean(value, fallback = false) {
   }
 
   return fallback;
+}
+
+function resolveManagedAdultPolicyFlag(value) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return MANAGED_POLICY_FORCE_ADULT_KEYS.some((key) => value[key] === true);
+}
+
+function isAdultBlockingEnabled() {
+  return adultContentForcedByPolicy || adultContentBlockingEnabled;
 }
 
 function extractHostnameFromUrl(url) {
@@ -318,7 +332,7 @@ async function setupAdultListRefreshAlarm() {
 }
 
 function matchesAdultDomainRule(url) {
-  if (!adultContentBlockingEnabled || !(adultDomainSet instanceof Set) || adultDomainSet.size === 0) {
+  if (!isAdultBlockingEnabled() || !(adultDomainSet instanceof Set) || adultDomainSet.size === 0) {
     return false;
   }
 
@@ -388,6 +402,10 @@ function isViolation(url) {
     return true;
   }
 
+  if (!isBlocking) {
+    return false;
+  }
+
   if (mode === "allow") {
     return !matchesAny(url, whiteList);
   }
@@ -396,6 +414,10 @@ function isViolation(url) {
 }
 
 function shouldCloseForBlocking(url) {
+  if (!isBlocking && adultContentForcedByPolicy) {
+    return matchesAdultDomainRule(url);
+  }
+
   return isTamperUrl(url) || isViolation(url);
 }
 
@@ -412,21 +434,27 @@ function shouldKeepTabOpen(tab) {
   return !shouldCloseForBlocking(url);
 }
 
-async function ensureSurvivorTab(excludedTabId) {
+async function ensureSurvivorTab(excludedTabId, targetWindowId = null) {
   try {
-    const tabs = await browser.tabs.query({});
+    const queryOptions = Number.isInteger(targetWindowId) ? { windowId: targetWindowId } : {};
+    const tabs = await browser.tabs.query(queryOptions);
     const remainingTabs = tabs.filter((tab) => tab.id !== excludedTabId);
     if (remainingTabs.some((tab) => shouldKeepTabOpen(tab))) {
       return;
     }
 
-    await browser.tabs.create({ active: false });
+    const createProperties = { active: false };
+    if (Number.isInteger(targetWindowId)) {
+      createProperties.windowId = targetWindowId;
+    }
+
+    await browser.tabs.create(createProperties);
   } catch {
     // Ignore fallback-tab errors; remove path handles failures safely.
   }
 }
 
-async function closeTabWithSurvivor(tabId, url) {
+async function closeTabWithSurvivor(tabId, url, context = {}) {
   if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
     return;
   }
@@ -435,7 +463,17 @@ async function closeTabWithSurvivor(tabId, url) {
     return;
   }
 
-  await ensureSurvivorTab(tabId);
+  let windowId = Number.isInteger(context?.windowId) ? context.windowId : null;
+  if (!Number.isInteger(windowId)) {
+    try {
+      const tab = await browser.tabs.get(tabId);
+      windowId = Number.isInteger(tab?.windowId) ? tab.windowId : null;
+    } catch {
+      windowId = null;
+    }
+  }
+
+  await ensureSurvivorTab(tabId, windowId);
   await removeTabSafely(tabId);
 }
 
@@ -448,6 +486,10 @@ function isTemporarilyDisabledForTest() {
 }
 
 function shouldEnforceBlocking() {
+  if (adultContentForcedByPolicy) {
+    return true;
+  }
+
   return isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest();
 }
 
@@ -465,65 +507,6 @@ async function removeTabSafely(tabId) {
   } catch {
     // Ignore cases where the tab was already closed or is no longer accessible.
   }
-}
-
-async function removeWindowSafely(windowId) {
-  try {
-    await browser.windows.remove(windowId);
-  } catch {
-    // Ignore cases where the window was already closed or is inaccessible.
-  }
-}
-
-async function closeIncognitoWindowIfNeeded(windowId, incognitoHint = false) {
-  if (!shouldEnforceBlocking() || !Number.isInteger(windowId) || windowId < 0) {
-    return false;
-  }
-
-  let isIncognito = incognitoHint === true;
-  if (!isIncognito) {
-    try {
-      const windowDetails = await browser.windows.get(windowId);
-      isIncognito = windowDetails?.incognito === true;
-    } catch {
-      return false;
-    }
-  }
-
-  if (!isIncognito) {
-    return false;
-  }
-
-  await removeWindowSafely(windowId);
-  return true;
-}
-
-async function closeIncognitoContextForTab(tabId, context = {}) {
-  if (!shouldEnforceBlocking()) {
-    return false;
-  }
-
-  const contextWindowId = Number.isInteger(context.windowId) ? context.windowId : null;
-  if (context.incognito === true && Number.isInteger(contextWindowId)) {
-    await removeWindowSafely(contextWindowId);
-    return true;
-  }
-
-  if (!Number.isInteger(tabId) || tabId < 0) {
-    return false;
-  }
-
-  try {
-    const tab = await browser.tabs.get(tabId);
-    if (tab?.incognito === true && Number.isInteger(tab.windowId)) {
-      await removeWindowSafely(tab.windowId);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-
-  return false;
 }
 
 async function sendPopupMessage(message) {
@@ -653,19 +636,11 @@ async function checkAndCloseTab(tabId, url, context = {}) {
     return;
   }
 
-  if (await closeIncognitoContextForTab(tabId, context)) {
-    return;
-  }
-
-  await closeTabWithSurvivor(tabId, url);
+  await closeTabWithSurvivor(tabId, url, context);
 }
 
 async function aggressivelyCloseTamperTab(tabId, url, context = {}) {
-  if (!shouldEnforceBlocking()) {
-    return;
-  }
-
-  if (await closeIncognitoContextForTab(tabId, context)) {
+  if (!isBlocking || !shouldEnforceBlocking()) {
     return;
   }
 
@@ -673,38 +648,17 @@ async function aggressivelyCloseTamperTab(tabId, url, context = {}) {
     return;
   }
 
-  await closeTabWithSurvivor(tabId, url);
-}
-
-async function aggressivelyCloseIncognitoWindowsByQuery() {
-  if (!shouldEnforceBlocking()) {
-    return;
-  }
-
-  try {
-    const windows = await browser.windows.getAll();
-    for (const currentWindow of windows) {
-      if (currentWindow?.incognito === true && Number.isInteger(currentWindow.id)) {
-        await removeWindowSafely(currentWindow.id);
-      }
-    }
-  } catch {
-    // Ignore enumeration errors; event listeners continue to enforce.
-  }
+  await closeTabWithSurvivor(tabId, url, context);
 }
 
 async function aggressivelyCloseTamperTabsByQuery() {
-  if (!shouldEnforceBlocking()) {
+  if (!isBlocking || !shouldEnforceBlocking()) {
     return;
   }
 
-  await aggressivelyCloseIncognitoWindowsByQuery();
-
   const tabs = await browser.tabs.query({});
-  const tamperOrIncognitoTabs = tabs.filter(
-    (tab) => tab?.incognito === true || isTamperUrl(tab.pendingUrl || tab.url)
-  );
-  for (const tab of tamperOrIncognitoTabs) {
+  const tamperTabs = tabs.filter((tab) => isTamperUrl(tab.pendingUrl || tab.url));
+  for (const tab of tamperTabs) {
     await aggressivelyCloseTamperTab(tab.id, getTabUrl(tab), tab);
   }
 }
@@ -718,7 +672,7 @@ function stopAggressiveTamperMonitor() {
 
 function startAggressiveTamperMonitor() {
   stopAggressiveTamperMonitor();
-  if (!shouldEnforceBlocking()) {
+  if (!isBlocking || !shouldEnforceBlocking()) {
     return;
   }
 
@@ -728,7 +682,7 @@ function startAggressiveTamperMonitor() {
 }
 
 function reconcileAggressiveTamperMonitor() {
-  if (shouldEnforceBlocking()) {
+  if (isBlocking && shouldEnforceBlocking()) {
     startAggressiveTamperMonitor();
     return;
   }
@@ -765,7 +719,9 @@ function applySettingsPayload(payload = {}) {
   }
 
   if ("adultContentBlockingEnabled" in payload) {
-    adultContentBlockingEnabled = sanitizeBoolean(payload.adultContentBlockingEnabled, false);
+    adultContentBlockingEnabled = adultContentForcedByPolicy
+      ? true
+      : sanitizeBoolean(payload.adultContentBlockingEnabled, false);
   }
 
   if ("mode" in payload) {
@@ -787,6 +743,28 @@ function applySettingsPayload(payload = {}) {
 
   if ("pausePositiveEnabled" in payload && typeof payload.pausePositiveEnabled === "boolean") {
     pausePositiveEnabled = payload.pausePositiveEnabled;
+  }
+
+  if (adultContentForcedByPolicy) {
+    adultContentBlockingEnabled = true;
+  }
+}
+
+async function loadManagedPolicy() {
+  try {
+    if (!browser?.storage?.managed?.get) {
+      adultContentForcedByPolicy = false;
+      return;
+    }
+
+    const managed = await browser.storage.managed.get(null);
+    adultContentForcedByPolicy = resolveManagedAdultPolicyFlag(managed);
+  } catch {
+    adultContentForcedByPolicy = false;
+  }
+
+  if (adultContentForcedByPolicy) {
+    adultContentBlockingEnabled = true;
   }
 }
 
@@ -867,11 +845,13 @@ async function loadState() {
   if (!isBlocking && recoverableClosedTabs.length > 0) {
     recoverableClosedTabs = [];
   }
+
+  if (adultContentForcedByPolicy) {
+    adultContentBlockingEnabled = true;
+  }
 }
 
 async function enforceAllOpenTabs() {
-  await aggressivelyCloseIncognitoWindowsByQuery();
-
   const tabs = await browser.tabs.query({});
   for (const tab of tabs) {
     const url = getTabUrl(tab);
@@ -880,8 +860,6 @@ async function enforceAllOpenTabs() {
 }
 
 async function enforceAllOpenTabsAtSessionStart() {
-  await aggressivelyCloseIncognitoWindowsByQuery();
-
   const initialClosedTabs = [];
   try {
     const tabs = await browser.tabs.query({});
@@ -889,10 +867,6 @@ async function enforceAllOpenTabsAtSessionStart() {
       const tabId = tab.id;
       const url = getTabUrl(tab);
       if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
-        continue;
-      }
-
-      if (await closeIncognitoContextForTab(tabId, tab)) {
         continue;
       }
 
@@ -907,7 +881,7 @@ async function enforceAllOpenTabsAtSessionStart() {
         }
       }
 
-      await closeTabWithSurvivor(tabId, url);
+      await closeTabWithSurvivor(tabId, url, tab);
     }
   } catch {
     // Keep blocking active even if a startup sweep fails unexpectedly.
@@ -948,7 +922,7 @@ async function setupTestDisableAlarm() {
 
 async function startBlockingSession(payload = {}) {
   applySettingsPayload(payload);
-  if (adultContentBlockingEnabled) {
+  if (isAdultBlockingEnabled()) {
     await ensureAdultDomainSetLoaded();
   }
 
@@ -1087,10 +1061,6 @@ browser.tabs.onCreated.addListener((tab) => {
   void checkAndCloseTab(tab.id, url, tab);
 });
 
-browser.windows.onCreated.addListener((windowDetails) => {
-  void closeIncognitoWindowIfNeeded(windowDetails.id, windowDetails.incognito === true);
-});
-
 browser.webNavigation.onBeforeNavigate.addListener((details) => {
   void aggressivelyCloseTamperTab(details.tabId, details.url, details);
   void checkAndCloseTab(details.tabId, details.url, details);
@@ -1181,7 +1151,7 @@ browser.runtime.onMessage.addListener((message = {}) => {
     applySettingsPayload(payload);
     return Promise.resolve()
       .then(() => {
-        if (adultContentBlockingEnabled) {
+        if (isAdultBlockingEnabled()) {
           return ensureAdultDomainSetLoaded();
         }
         return undefined;
@@ -1189,7 +1159,7 @@ browser.runtime.onMessage.addListener((message = {}) => {
       .then(() => persistState())
       .then(() => {
         reconcileAggressiveTamperMonitor();
-        if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {
+        if (shouldEnforceBlocking()) {
           return enforceAllOpenTabs();
         }
         return undefined;
@@ -1206,9 +1176,14 @@ void loadState()
     await ensureAdultDomainSetLoaded();
     void refreshAdultDomainSetFromRemote();
 
+    await loadManagedPolicy();
+    if (isAdultBlockingEnabled()) {
+      await ensureAdultDomainSetLoaded();
+    }
+
     await reconcileTimers();
     reconcileAggressiveTamperMonitor();
-    if (isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest()) {
+    if (shouldEnforceBlocking()) {
       await aggressivelyCloseTamperTabsByQuery();
       await enforceAllOpenTabs();
     }

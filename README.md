@@ -40,6 +40,14 @@ curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore
 sudo bash hardcore-install.sh --addon-id contra@lotmik --on-conflict merge
 ```
 
+```bash
+sudo bash hardcore-install.sh --adult
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore-install.sh | sudo bash -s -- --adult
+```
+
 ## Windows
 
 Open **PowerShell as Administrator**.
@@ -61,6 +69,9 @@ irm https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore-instal
 - Writes Firefox enterprise policy `ExtensionSettings` for Contra.
 - Sets Contra to `force_installed`.
 - Sets `private_browsing: true` so Contra can run in private windows under enterprise policy.
+- Optional `--adult` flag sets enterprise managed config `forceAdultBlock: true`:
+  - adult blocking is enforced even when the normal block toggle is off
+  - the popup adult toggle is hidden and cannot be disabled
 - Makes normal Firefox remove/disable flows unavailable for this add-on.
 - Backs up existing `policies.json` first.
 - Verifies setup at the end and prints PASS/FAIL.
@@ -125,6 +136,10 @@ sudo bash hardcore-install.sh --on-conflict overwrite
 - Run verification script manually on Linux/macOS:
 ```bash
 bash scripts/verify-firefox-policy.sh
+```
+- If installed with forced adult mode:
+```bash
+bash scripts/verify-firefox-policy.sh --adult
 ```
 
 ## Why this README is search-friendly

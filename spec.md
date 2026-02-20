@@ -249,6 +249,10 @@ Add a dedicated settings checkbox that enables blocking against a very large bui
 - Data:
   - Add generated `data/adult-domains.txt` from pinned upstream sources.
   - Document sources and regeneration command in `docs/ADULT_BLOCKLIST_SOURCES.md`.
+  - Add enterprise-policy force mode (`forceAdultBlock`) that:
+    - enforces adult blocking even when main blocking toggle is off
+    - hides the popup adult toggle so users cannot disable it in UI
+  - Add bash installer flag `--adult` to set managed policy `forceAdultBlock: true`.
 
 ### Verification
 - `node --check popup.js`
@@ -277,6 +281,20 @@ When Hardcore Mode policy is installed, enforce that Contra is allowed to run in
 - `bash -n scripts/hardcore-install.sh`
 - `bash -n scripts/verify-firefox-policy.sh`
 - PowerShell parse check for `scripts/hardcore-install.ps1`
-- Manual flow:
-  - Run Hardcore install script as admin.
-  - Restart Firefox and check `about:policies` for `private_browsing: true` under Contra's entry.
+- Manual flow: run Hardcore install script as admin.
+- Manual flow: restart Firefox and check `about:policies` for `private_browsing: true` under Contra's entry.
+
+## Addendum: Per-Window Survivor Tab Guard
+
+### Goal
+When a forbidden tab is closed, keep the current browser window alive by ensuring at least one non-forbidden tab remains in that same window.
+
+### Scope
+- Before closing a tab for blocking/tamper reasons, evaluate survivor tabs within the tab's own `windowId`.
+- If closing the target tab would leave no keepable tabs in that window, create a fallback tab in that window first.
+- Preserve existing global blocking behavior; this guard only changes where fallback tabs are created.
+
+### Verification
+- `node --check background.js`
+- Manual flow: open a fresh window with one tab, navigate it to a forbidden URL while blocking is active.
+- Manual flow: confirm the forbidden tab closes and the window remains open with a fallback new tab.

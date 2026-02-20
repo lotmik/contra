@@ -6,6 +6,7 @@ addon_id="${DEFAULT_ADDON_ID}"
 install_url=""
 firefox_path=""
 policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
+force_adult_block=false
 
 usage() {
   cat <<'USAGE'
@@ -17,6 +18,8 @@ Options:
   --addon-id ID            Add-on ID to verify (default: contra@lotmik)
   --install-url URL        Expected install URL (default: AMO latest URL from add-on ID)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
+  --adult                  Verify force adult policy flag is present and true
+  --no-adult               Verify only force-install/private-browsing policy
   -h, --help               Show help
 USAGE
 }
@@ -142,6 +145,14 @@ while [[ $# -gt 0 ]]; do
       firefox_path="${1#*=}"
       shift
       ;;
+    --adult)
+      force_adult_block=true
+      shift
+      ;;
+    --no-adult)
+      force_adult_block=false
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -169,6 +180,7 @@ policy_file="$(resolve_policy_file "${os_name}")"
 echo "Policy file: ${policy_file}"
 echo "Add-on ID: ${addon_id}"
 echo "Expected install URL: ${install_url}"
+echo "Expect force adult policy: ${force_adult_block}"
 
 if [[ ! -f "${policy_file}" ]]; then
   echo "FAIL: policy file does not exist." >&2
@@ -180,7 +192,7 @@ if is_perl_jsonpp_available; then
 use strict;
 use warnings;
 
-my ($path, $addon_id, $install_url) = @ARGV;
+my ($path, $addon_id, $install_url, $expect_force_adult_flag) = @ARGV;
 open my $fh, "<", $path or die "FAIL: could not read $path\n";
 local $/;
 my $raw = <$fh>;
@@ -217,8 +229,24 @@ if (!($entry->{private_browsing} // 0)) {
   die "FAIL: private_browsing is not true\n";
 }
 
+if ($expect_force_adult_flag eq "true") {
+  my $extensions = $data->{policies}->{"3rdparty"}->{Extensions};
+  if (ref($extensions) ne "HASH") {
+    die "FAIL: missing policies.3rdparty.Extensions for forced adult policy\n";
+  }
+
+  my $managed = $extensions->{$addon_id};
+  if (ref($managed) ne "HASH") {
+    die "FAIL: missing managed policy block for $addon_id\n";
+  }
+
+  if (!($managed->{forceAdultBlock} // 0)) {
+    die "FAIL: forceAdultBlock is not true in managed policy\n";
+  }
+}
+
 print "PASS: policies.json is valid and Contra force-install policy is active.\n";
-' "${policy_file}" "${addon_id}" "${install_url}"
+' "${policy_file}" "${addon_id}" "${install_url}" "${force_adult_block}"
 else
   echo "WARN: Perl JSON::PP not available; running basic fallback checks only." >&2
 
@@ -241,6 +269,21 @@ else
   if ! grep -Eq '"private_browsing"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
     echo "FAIL: private_browsing is not true in ${policy_file}" >&2
     exit 1
+  fi
+
+  if [[ "${force_adult_block}" == "true" ]]; then
+    if ! grep -Fq '"3rdparty"' "${policy_file}"; then
+      echo "FAIL: missing 3rdparty policy section in ${policy_file}" >&2
+      exit 1
+    fi
+    if ! grep -Fq "\"${addon_id}\"" "${policy_file}"; then
+      echo "FAIL: missing managed add-on entry ${addon_id} in ${policy_file}" >&2
+      exit 1
+    fi
+    if ! grep -Eq '"forceAdultBlock"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
+      echo "FAIL: forceAdultBlock is not true in ${policy_file}" >&2
+      exit 1
+    fi
   fi
 
   echo "PASS: basic policy checks passed (JSON parser unavailable for deep validation)."
