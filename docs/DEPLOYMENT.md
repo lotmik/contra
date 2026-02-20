@@ -25,11 +25,14 @@ Compatibility wrappers (legacy names):
 - `scripts/uninstall-firefox-policy.sh` -> forwards to `hardcore-uninstall.sh`
 
 ## Hardcore policy scope
-Hardcore Mode is intentionally minimal and only sets Firefox policy for:
+Hardcore Mode sets Firefox policy for:
 - `policies.ExtensionSettings[contra@lotmik]`
 - `installation_mode: force_installed`
+- `private_browsing: true`
 
-No extra enterprise lock policies are applied.
+No extra enterprise lock policies are applied beyond Contra's `ExtensionSettings` entry.
+
+Compatibility note: `private_browsing` in `ExtensionSettings` requires Firefox `136+` (or ESR `128.8+`).
 
 ## Local maintainer checks
 ```bash
@@ -50,6 +53,6 @@ powershell -NoProfile -Command "[System.Management.Automation.Language.Parser]::
 1. Install Contra from AMO.
 2. Run Hardcore install script as admin.
 3. Restart Firefox.
-4. Confirm `about:policies` is Active and shows `contra@lotmik` force-installed.
+4. Confirm `about:policies` is Active and shows `contra@lotmik` force-installed with `private_browsing: true`.
 5. Run uninstall script as admin.
 6. Restart Firefox and confirm Contra policy entry is removed.

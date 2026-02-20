@@ -180,6 +180,15 @@ function Verify-PolicyInstall([string]$PolicyFile, [string]$AddonId, [string]$In
     throw "FAIL: install_url does not match expected URL"
   }
 
+  $privateBrowsingProperty = $addonEntry.PSObject.Properties["private_browsing"]
+  $privateBrowsing = $null
+  if ($null -ne $privateBrowsingProperty) {
+    $privateBrowsing = $privateBrowsingProperty.Value
+  }
+  if ($privateBrowsing -ne $true) {
+    throw "FAIL: private_browsing is not true"
+  }
+
   Write-Host "PASS: policies.json is valid and Contra force-install policy is active."
 }
 
@@ -293,6 +302,7 @@ try {
         $addonId = [pscustomobject]@{
           installation_mode = "force_installed"
           install_url = $installUrl
+          private_browsing = $true
         }
       }
     }
@@ -329,6 +339,7 @@ try {
         $extensionSettings | Add-Member -NotePropertyName $addonId -NotePropertyValue ([pscustomobject]@{
           installation_mode = "force_installed"
           install_url = $installUrl
+          private_browsing = $true
         }) -Force
         $finalData = $existingData
       }

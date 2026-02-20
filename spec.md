@@ -259,20 +259,24 @@ Add a dedicated settings checkbox that enables blocking against a very large bui
   - Confirm enabling the checkbox includes adult-domain matching during blocking.
   - Confirm background alarm `adultListRefresh` exists with `15` minute period.
 
-## Addendum: Incognito/Private Window Lock During Active Blocking
+## Addendum: Enterprise Policy for Private-Window Access
 
 ### Goal
-Make private browsing unavailable while blocking is active by immediately closing incognito/private windows and tabs.
+When Hardcore Mode policy is installed, enforce that Contra is allowed to run in private windows so private tabs remain visible to extension enforcement.
 
 ### Scope
-- During active blocking, detect and close incognito/private windows as soon as they are created.
-- During active blocking, detect and close tab events tied to incognito/private contexts.
-- Include incognito/private sweeps in startup/session enforcement to close already-open private windows when a blocking session begins.
-- Preserve existing tamper-page and URL-rule enforcement behavior in normal windows.
+- Set `policies.ExtensionSettings[contra@lotmik].private_browsing: true` in Hardcore install payloads.
+- Preserve this flag in merge/overwrite flows on Linux/macOS and Windows installers.
+- Validate `private_browsing: true` in policy verification checks.
+- Keep behavior scoped to Contra's policy entry without introducing unrelated lock policies.
+
+### Compatibility
+- Firefox support for `private_browsing` in `ExtensionSettings` begins at Firefox `136` and ESR `128.8`.
 
 ### Verification
-- `node --check background.js`
+- `bash -n scripts/hardcore-install.sh`
+- `bash -n scripts/verify-firefox-policy.sh`
+- PowerShell parse check for `scripts/hardcore-install.ps1`
 - Manual flow:
-  - Start blocking, open a new private/incognito window, verify it is closed immediately.
-  - Start blocking with a private/incognito window already open, verify it is closed during initial enforcement.
-  - Confirm normal (non-private) blocking behavior still works for tamper pages and URL rules.
+  - Run Hardcore install script as admin.
+  - Restart Firefox and check `about:policies` for `private_browsing: true` under Contra's entry.

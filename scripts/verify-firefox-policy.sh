@@ -213,6 +213,10 @@ if (($entry->{install_url} // "") ne $install_url) {
   die "FAIL: install_url does not match expected URL\n";
 }
 
+if (!($entry->{private_browsing} // 0)) {
+  die "FAIL: private_browsing is not true\n";
+}
+
 print "PASS: policies.json is valid and Contra force-install policy is active.\n";
 ' "${policy_file}" "${addon_id}" "${install_url}"
 else
@@ -232,6 +236,10 @@ else
   fi
   if ! grep -Fq "\"install_url\": \"${install_url}\"" "${policy_file}"; then
     echo "FAIL: install_url mismatch in ${policy_file}" >&2
+    exit 1
+  fi
+  if ! grep -Eq '"private_browsing"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
+    echo "FAIL: private_browsing is not true in ${policy_file}" >&2
     exit 1
   fi
 

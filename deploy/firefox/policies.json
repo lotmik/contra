@@ -3,7 +3,8 @@
     "ExtensionSettings": {
       "contra@lotmik": {
         "installation_mode": "force_installed",
-        "install_url": "__CONTRA_INSTALL_URL__"
+        "install_url": "__CONTRA_INSTALL_URL__",
+        "private_browsing": true
       }
     }
   }

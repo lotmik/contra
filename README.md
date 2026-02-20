@@ -2,7 +2,7 @@
 
 If you have ever been on the interner before, you know how addictive it can become. You know how corporations fight for your attention only to monetize on it by showing you even more ads. And if you have tried website blockers before, you know how unreliable and easy-to-bypass they normally are.
 
-**contra**. is a lightweight browser extention that helps you regain control over your digital life and make deep work sessions as easy and straightforward as possible. And with **hardcore mode**, you make it impossible to bypass your own restrictions at all: Firefox enterprise policy keeps the add-on force-installed so you cannot remove it.
+**contra**. is a lightweight browser extention that helps you regain control over your digital life: deep work sessions become much easier when you don't have access to distractions on your working machine. And with **hardcore mode**, you make it impossible to bypass your own restrictions at all: Firefox enterprise policy keeps the add-on force-installed so you cannot remove it.
 
 ## Hardcore mode setup
 
@@ -60,9 +60,12 @@ irm https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore-instal
 ## What Hardcore Mode does
 - Writes Firefox enterprise policy `ExtensionSettings` for Contra.
 - Sets Contra to `force_installed`.
+- Sets `private_browsing: true` so Contra can run in private windows under enterprise policy.
 - Makes normal Firefox remove/disable flows unavailable for this add-on.
 - Backs up existing `policies.json` first.
 - Verifies setup at the end and prints PASS/FAIL.
+
+`private_browsing` policy support requires Firefox `136+` (or ESR `128.8+`).
 
 ## What Hardcore Mode does not do
 - It does not protect against users with full admin/root privileges.
@@ -74,6 +77,7 @@ irm https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore-instal
 2. Open `about:policies`.
 3. Confirm **Status: Active**.
 4. Confirm `ExtensionSettings` contains `contra@lotmik` with `installation_mode: force_installed`.
+5. Confirm the same entry includes `private_browsing: true`.
 
 ## Uninstall Hardcore Mode
 
