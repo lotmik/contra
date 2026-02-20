@@ -30,7 +30,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  font-family: "Inter", sans-serif;
+  font-family: "Segoe UI", "Noto Sans", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -431,7 +431,7 @@ input[type="range"] {
   background: #323437;
   padding: 10px;
   color: #646669;
-  font-family: "Roboto Mono", "Courier New", monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;

@@ -17,3 +17,11 @@ Use this path if Firefox rejects the local unsigned XPI for policy installation.
 - Keep extension ID stable as `contra@local`.
 - Any manifest ID change breaks force-install policy mapping.
 - Increment `manifest.json` version for each release before building.
+
+## AMO Publishing Formalities
+- `manifest.json` is AMO-ready by default:
+  - `browser_specific_settings.gecko.id` is set and stable.
+  - `browser_specific_settings.gecko.update_url` is intentionally omitted.
+  - `browser_specific_settings.gecko.data_collection_permissions.required` is set to `["none"]`.
+- For AMO-listed or AMO-unlisted distribution, keep `update_url` unset and let AMO manage updates.
+- Only add `gecko.update_url` for a self-hosted update channel outside AMO.

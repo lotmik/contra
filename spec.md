@@ -209,3 +209,24 @@ When blocking is active, lock the main popup `Settings` dropdown row itself inst
   - Start blocking and verify the `Settings` summary row appears blurred.
   - Verify clicking the `Settings` summary row does not open/close the dropdown while blocked.
   - Verify selecting/copying the visible `Settings` label is not possible while blocked.
+
+## Addendum: Firefox AMO Publishing Formalities
+
+### Goal
+Prepare the add-on for Mozilla Add-ons (AMO) publication with manifest and packaging metadata aligned to current Firefox requirements.
+
+### Scope
+- Keep AMO package update flow AMO-managed by default:
+  - Do not set `browser_specific_settings.gecko.update_url` in release `manifest.json`.
+- Keep a stable `browser_specific_settings.gecko.id`.
+- Add MV3 consent metadata:
+  - `browser_specific_settings.gecko.data_collection_permissions.required: ["none"]` because the extension does not transmit user data.
+- Remove remote font dependencies from popup UI to avoid remote resource policy issues during review.
+- Document the distinction between AMO distribution and optional self-hosted updates (`update_url` only for self-hosted channel).
+
+### Verification
+- `node --check background.js`
+- `node --check popup.js`
+- `bash -n scripts/build-xpi.sh`
+- `scripts/build-xpi.sh`
+- Confirm `manifest.json` has `browser_specific_settings.gecko.data_collection_permissions.required` and no `gecko.update_url`.
