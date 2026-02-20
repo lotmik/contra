@@ -2,11 +2,17 @@
 
 If you have ever been on the interner before, you know how addictive it can become. You know how corporations fight for your attention only to monetize on it by showing you even more ads. And if you have tried website blockers before, you know how unreliable and easy-to-bypass they normally are.
 
-**contra**. is a lightweight browser extention that helps you regain control over your digital life and make deep work sessions as easy and straightforward as possible. And with **hardcore mode**, you make it impossible to bypass your own restrictions at all.
+**contra**. is a lightweight browser extention that helps you regain control over your digital life and make deep work sessions as easy and straightforward as possible. And with **hardcore mode**, you make it impossible to bypass your own restrictions at all: Firefox enterprise policy keeps the add-on force-installed so you cannot remove it.
 
-If you want maximum commitment, enable **Hardcore Mode**: Firefox enterprise policy keeps the add-on force-installed so normal remove/disable actions in Firefox are blocked.
+## Hardcore mode setup
 
-## 2-minute Hardcore setup
+contra. uses Firefox enterprise policy that keeps the add-on force-installed so you cannot remove it.
+<details>
+<summary>Firefox</summary>
+
+</details>
+
+
 
 ### Step 1: Install Contra from Firefox Add-ons Marketplace
 1. Install Contra from AMO.

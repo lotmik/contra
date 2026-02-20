@@ -467,6 +467,65 @@ async function removeTabSafely(tabId) {
   }
 }
 
+async function removeWindowSafely(windowId) {
+  try {
+    await browser.windows.remove(windowId);
+  } catch {
+    // Ignore cases where the window was already closed or is inaccessible.
+  }
+}
+
+async function closeIncognitoWindowIfNeeded(windowId, incognitoHint = false) {
+  if (!shouldEnforceBlocking() || !Number.isInteger(windowId) || windowId < 0) {
+    return false;
+  }
+
+  let isIncognito = incognitoHint === true;
+  if (!isIncognito) {
+    try {
+      const windowDetails = await browser.windows.get(windowId);
+      isIncognito = windowDetails?.incognito === true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (!isIncognito) {
+    return false;
+  }
+
+  await removeWindowSafely(windowId);
+  return true;
+}
+
+async function closeIncognitoContextForTab(tabId, context = {}) {
+  if (!shouldEnforceBlocking()) {
+    return false;
+  }
+
+  const contextWindowId = Number.isInteger(context.windowId) ? context.windowId : null;
+  if (context.incognito === true && Number.isInteger(contextWindowId)) {
+    await removeWindowSafely(contextWindowId);
+    return true;
+  }
+
+  if (!Number.isInteger(tabId) || tabId < 0) {
+    return false;
+  }
+
+  try {
+    const tab = await browser.tabs.get(tabId);
+    if (tab?.incognito === true && Number.isInteger(tab.windowId)) {
+      await removeWindowSafely(tab.windowId);
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 async function sendPopupMessage(message) {
   try {
     await browser.runtime.sendMessage(message);
@@ -589,20 +648,49 @@ async function restoreRecoverableClosedTabs() {
   }
 }
 
-async function checkAndCloseTab(tabId, url) {
+async function checkAndCloseTab(tabId, url, context = {}) {
   if (!shouldEnforceBlocking()) {
+    return;
+  }
+
+  if (await closeIncognitoContextForTab(tabId, context)) {
     return;
   }
 
   await closeTabWithSurvivor(tabId, url);
 }
 
-async function aggressivelyCloseTamperTab(tabId, url) {
-  if (!shouldEnforceBlocking() || !isTamperUrl(url)) {
+async function aggressivelyCloseTamperTab(tabId, url, context = {}) {
+  if (!shouldEnforceBlocking()) {
+    return;
+  }
+
+  if (await closeIncognitoContextForTab(tabId, context)) {
+    return;
+  }
+
+  if (!isTamperUrl(url)) {
     return;
   }
 
   await closeTabWithSurvivor(tabId, url);
+}
+
+async function aggressivelyCloseIncognitoWindowsByQuery() {
+  if (!shouldEnforceBlocking()) {
+    return;
+  }
+
+  try {
+    const windows = await browser.windows.getAll();
+    for (const currentWindow of windows) {
+      if (currentWindow?.incognito === true && Number.isInteger(currentWindow.id)) {
+        await removeWindowSafely(currentWindow.id);
+      }
+    }
+  } catch {
+    // Ignore enumeration errors; event listeners continue to enforce.
+  }
 }
 
 async function aggressivelyCloseTamperTabsByQuery() {
@@ -610,10 +698,14 @@ async function aggressivelyCloseTamperTabsByQuery() {
     return;
   }
 
+  await aggressivelyCloseIncognitoWindowsByQuery();
+
   const tabs = await browser.tabs.query({});
-  const tamperTabs = tabs.filter((tab) => isTamperUrl(tab.pendingUrl || tab.url));
-  for (const tab of tamperTabs) {
-    await closeTabWithSurvivor(tab.id, getTabUrl(tab));
+  const tamperOrIncognitoTabs = tabs.filter(
+    (tab) => tab?.incognito === true || isTamperUrl(tab.pendingUrl || tab.url)
+  );
+  for (const tab of tamperOrIncognitoTabs) {
+    await aggressivelyCloseTamperTab(tab.id, getTabUrl(tab), tab);
   }
 }
 
@@ -778,14 +870,18 @@ async function loadState() {
 }
 
 async function enforceAllOpenTabs() {
+  await aggressivelyCloseIncognitoWindowsByQuery();
+
   const tabs = await browser.tabs.query({});
   for (const tab of tabs) {
     const url = getTabUrl(tab);
-    await checkAndCloseTab(tab.id, url);
+    await checkAndCloseTab(tab.id, url, tab);
   }
 }
 
 async function enforceAllOpenTabsAtSessionStart() {
+  await aggressivelyCloseIncognitoWindowsByQuery();
+
   const initialClosedTabs = [];
   try {
     const tabs = await browser.tabs.query({});
@@ -793,6 +889,10 @@ async function enforceAllOpenTabsAtSessionStart() {
       const tabId = tab.id;
       const url = getTabUrl(tab);
       if (!Number.isInteger(tabId) || tabId < 0 || typeof url !== "string" || !url) {
+        continue;
+      }
+
+      if (await closeIncognitoContextForTab(tabId, tab)) {
         continue;
       }
 
@@ -977,25 +1077,31 @@ async function reconcileTimers() {
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const url = changeInfo.url || tab.url;
-  void aggressivelyCloseTamperTab(tabId, url);
-  void checkAndCloseTab(tabId, url);
+  void aggressivelyCloseTamperTab(tabId, url, tab);
+  void checkAndCloseTab(tabId, url, tab);
 });
 
 browser.tabs.onCreated.addListener((tab) => {
-  void aggressivelyCloseTamperTab(tab.id, tab.pendingUrl || tab.url);
+  const url = tab.pendingUrl || tab.url;
+  void aggressivelyCloseTamperTab(tab.id, url, tab);
+  void checkAndCloseTab(tab.id, url, tab);
+});
+
+browser.windows.onCreated.addListener((windowDetails) => {
+  void closeIncognitoWindowIfNeeded(windowDetails.id, windowDetails.incognito === true);
 });
 
 browser.webNavigation.onBeforeNavigate.addListener((details) => {
-  void aggressivelyCloseTamperTab(details.tabId, details.url);
-  void checkAndCloseTab(details.tabId, details.url);
+  void aggressivelyCloseTamperTab(details.tabId, details.url, details);
+  void checkAndCloseTab(details.tabId, details.url, details);
 });
 
 browser.tabs.onActivated.addListener((activeInfo) => {
   void (async () => {
     try {
       const tab = await browser.tabs.get(activeInfo.tabId);
-      await aggressivelyCloseTamperTab(tab.id, tab.url);
-      await checkAndCloseTab(tab.id, tab.url);
+      await aggressivelyCloseTamperTab(tab.id, tab.url, tab);
+      await checkAndCloseTab(tab.id, tab.url, tab);
     } catch {
       // Ignore race conditions where the activated tab disappears.
     }

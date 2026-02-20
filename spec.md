@@ -258,3 +258,21 @@ Add a dedicated settings checkbox that enables blocking against a very large bui
   - Confirm `data/adult-domains.txt` exists and contains a large normalized set.
   - Confirm enabling the checkbox includes adult-domain matching during blocking.
   - Confirm background alarm `adultListRefresh` exists with `15` minute period.
+
+## Addendum: Incognito/Private Window Lock During Active Blocking
+
+### Goal
+Make private browsing unavailable while blocking is active by immediately closing incognito/private windows and tabs.
+
+### Scope
+- During active blocking, detect and close incognito/private windows as soon as they are created.
+- During active blocking, detect and close tab events tied to incognito/private contexts.
+- Include incognito/private sweeps in startup/session enforcement to close already-open private windows when a blocking session begins.
+- Preserve existing tamper-page and URL-rule enforcement behavior in normal windows.
+
+### Verification
+- `node --check background.js`
+- Manual flow:
+  - Start blocking, open a new private/incognito window, verify it is closed immediately.
+  - Start blocking with a private/incognito window already open, verify it is closed during initial enforcement.
+  - Confirm normal (non-private) blocking behavior still works for tamper pages and URL rules.
