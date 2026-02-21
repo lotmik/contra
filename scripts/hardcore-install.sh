@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_ADDON_ID="contra@lotmik"
+DEFAULT_ADDON_ID="contra@ltdmk"
 addon_id="${DEFAULT_ADDON_ID}"
 install_url=""
 on_conflict="merge"
@@ -26,7 +26,7 @@ Usage: scripts/hardcore-install.sh [options]
 Install Firefox enterprise policy so Contra cannot be removed/disabled.
 
 Options:
-  --addon-id ID            Add-on ID to lock (default: contra@lotmik)
+  --addon-id ID            Add-on ID to lock (default: contra@ltdmk)
   --install-url URL        Install URL used in policy (default: AMO latest URL from add-on ID)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)

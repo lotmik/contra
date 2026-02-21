@@ -1,0 +1,18 @@
+{
+  "policies": {
+    "ExtensionSettings": {
+      "contra@ltdmk": {
+        "installation_mode": "force_installed",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/contra%40lotmik/latest.xpi",
+        "private_browsing": true
+      }
+    },
+    "3rdparty": {
+      "Extensions": {
+        "contra@ltdmk": {
+          "forceAdultBlock": true
+        }
+      }
+    }
+  }
+}

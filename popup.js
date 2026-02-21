@@ -68,6 +68,7 @@ const elements = {
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
   unlockChallenge: document.getElementById("unlock-challenge"),
   unlockPhraseLabel: document.querySelector('label[for="unlock-phrase-input"]'),
+  unlockTypingSurface: document.getElementById("unlock-typing-surface"),
   unlockPhraseInput: document.getElementById("unlock-phrase-input"),
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
   unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
@@ -252,6 +253,25 @@ function sanitizeTypedPhraseInput(value) {
     .replace(/^\s+/, "");
 }
 
+function getSanitizedCursorOffset(rawValue, rawSelectionStart) {
+  const safeValue = String(rawValue || "");
+  const safeSelection = Number.isInteger(rawSelectionStart) ? rawSelectionStart : safeValue.length;
+  const clampedSelection = Math.max(0, Math.min(safeValue.length, safeSelection));
+  const prefix = safeValue.slice(0, clampedSelection);
+  return sanitizeTypedPhraseInput(prefix).length;
+}
+
+function getCaretWordLocation(typedInput, cursorOffset) {
+  const safeInput = String(typedInput || "");
+  const clampedOffset = Math.max(0, Math.min(safeInput.length, Number(cursorOffset) || 0));
+  const prefix = safeInput.slice(0, clampedOffset);
+  const splitPrefix = prefix.split(" ");
+  return {
+    wordIndex: Math.max(0, splitPrefix.length - 1),
+    charIndex: splitPrefix[splitPrefix.length - 1]?.length || 0
+  };
+}
+
 function charsMatchAtIndex(referenceChar, typedChar) {
   return String(referenceChar) === String(typedChar);
 }
@@ -306,12 +326,15 @@ function renderPhraseTypingPreview() {
   }
 
   const referencePhrase = getReferencePhraseForTyping();
-  const typedInput = sanitizeTypedPhraseInput(elements.unlockPhraseInput.value);
+  const rawTypedInput = String(elements.unlockPhraseInput.value || "");
+  const typedInput = sanitizeTypedPhraseInput(rawTypedInput);
+  const cursorOffset = getSanitizedCursorOffset(rawTypedInput, elements.unlockPhraseInput.selectionStart);
+  const caretLocation = getCaretWordLocation(typedInput, cursorOffset);
   const referenceWords = referencePhrase.split(" ");
   const inputWords = typedInput.length > 0 ? typedInput.split(" ") : [""];
   const totalWords = Math.max(referenceWords.length, inputWords.length);
-  const caretWordIndex = Math.max(0, inputWords.length - 1);
-  const caretCharIndex = inputWords[caretWordIndex]?.length || 0;
+  const caretWordIndex = caretLocation.wordIndex;
+  const caretCharIndex = caretLocation.charIndex;
   const fragment = document.createDocumentFragment();
   let renderedOffset = 0;
   let caretBoundaryOffset = 0;
@@ -727,8 +750,10 @@ function updateTimerSettingsVisibility() {
 
 function setPhraseControls({ visible, label, disabled }) {
   elements.unlockPhraseLabel.hidden = !visible;
+  elements.unlockTypingSurface.hidden = !visible;
   elements.unlockPhraseDisplay.hidden = !visible;
   elements.unlockPhraseInput.hidden = !visible;
+  elements.unlockPhraseCaret.hidden = !visible;
   elements.unlockPhraseInput.disabled = disabled;
   if (!visible || disabled) {
     elements.unlockPhraseInput.blur();
@@ -918,8 +943,8 @@ function updateLockedChallenge() {
     const pauseRemaining = getPauseRemainingMs();
     if (pauseRemaining > 0) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-      setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
-      elements.unlockConfirmButton.textContent = "Paused";
+      setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
+      elements.unlockConfirmButton.textContent = "Resume";
       updateStatus(`Pause active: ${formatDuration(pauseRemaining)}`);
       return;
     }
@@ -1135,6 +1160,26 @@ async function requestPausePositive() {
   }
 }
 
+async function resumePausePositive() {
+  try {
+    const response = await browser.runtime.sendMessage({
+      type: "RESUME_PAUSE_POSITIVE"
+    });
+
+    if (!response || response.ok !== true) {
+      updateStatus("Could not resume timer");
+      return;
+    }
+
+    state.pauseUntil = 0;
+    await saveStateToStorage();
+    renderUi();
+  } catch (error) {
+    updateStatus("Could not resume timer");
+    console.error("RESUME_PAUSE_POSITIVE failed", error);
+  }
+}
+
 async function handlePowerToggleChange() {
   if (!state.isBlocking && elements.powerToggle.checked) {
     const validationError = getUrlListValidationError(elements.urlList.value);
@@ -1169,6 +1214,11 @@ async function handleUnlockConfirmClick() {
   }
 
   if (state.unlockMode === "timer") {
+    if (getPauseRemainingMs() > 0) {
+      await resumePausePositive();
+      return;
+    }
+
     if (state.timerExpired) {
       await stopBlocking();
       return;
@@ -1474,10 +1524,16 @@ function handlePhraseInput() {
 
 function handlePhraseInputFocus() {
   elements.unlockPhraseDisplay.classList.add("is-focus-visible");
+  renderPhraseTypingPreview();
 }
 
 function handlePhraseInputBlur() {
   elements.unlockPhraseDisplay.classList.remove("is-focus-visible");
+  elements.unlockPhraseCaret.hidden = true;
+}
+
+function handlePhraseCursorMove() {
+  renderPhraseTypingPreview();
 }
 
 function handleUnlockPhraseKeydown(event) {
@@ -1583,6 +1639,9 @@ async function initializePopup() {
   elements.unlockPhraseInput.addEventListener("drop", handleUnlockPhrasePaste);
   elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
   elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
+  elements.unlockPhraseInput.addEventListener("keyup", handlePhraseCursorMove);
+  elements.unlockPhraseInput.addEventListener("click", handlePhraseCursorMove);
+  elements.unlockPhraseInput.addEventListener("select", handlePhraseCursorMove);
   window.addEventListener("resize", renderPhraseTypingPreview);
   window.addEventListener("beforeunload", () => {
     flushPendingUrlListSync();

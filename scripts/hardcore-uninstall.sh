@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_ADDON_ID="contra@lotmik"
+DEFAULT_ADDON_ID="contra@ltdmk"
 addon_id="${DEFAULT_ADDON_ID}"
 yes_mode=false
 firefox_path=""
@@ -21,7 +21,7 @@ Usage: scripts/hardcore-uninstall.sh [options]
 Remove Contra Firefox enterprise policy lock while preserving unrelated policies.
 
 Options:
-  --addon-id ID            Add-on ID to unlock (default: contra@lotmik)
+  --addon-id ID            Add-on ID to unlock (default: contra@ltdmk)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
   --yes, -y                Non-interactive mode (currently informational)
   -h, --help               Show help
@@ -136,6 +136,34 @@ if (ref($data->{policies}) eq "HASH" && ref($data->{policies}->{ExtensionSetting
   }
 }
 
+if (
+  ref($data->{policies}) eq "HASH" &&
+  ref($data->{policies}->{"3rdparty"}) eq "HASH" &&
+  ref($data->{policies}->{"3rdparty"}->{Extensions}) eq "HASH"
+) {
+  my $managed_entry = $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id};
+  if (ref($managed_entry) eq "HASH" && exists $managed_entry->{forceAdultBlock}) {
+    delete $managed_entry->{forceAdultBlock};
+    $removed = 1;
+  }
+
+  if (ref($managed_entry) eq "HASH" && !keys %{$managed_entry}) {
+    delete $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id};
+  }
+
+  if (ref($data->{policies}->{"3rdparty"}->{Extensions}) eq "HASH" && !keys %{ $data->{policies}->{"3rdparty"}->{Extensions} }) {
+    delete $data->{policies}->{"3rdparty"}->{Extensions};
+  }
+
+  if (ref($data->{policies}->{"3rdparty"}) eq "HASH" && !keys %{ $data->{policies}->{"3rdparty"} }) {
+    delete $data->{policies}->{"3rdparty"};
+  }
+
+  if (ref($data->{policies}) eq "HASH" && !keys %{ $data->{policies} }) {
+    delete $data->{policies};
+  }
+}
+
 if (!keys %{$data}) {
   print "EMPTY\n";
   exit 0;
@@ -188,6 +216,11 @@ if (ref($data) ne "HASH") {
 my $settings = $data->{policies}->{ExtensionSettings};
 if (ref($settings) eq "HASH" && exists $settings->{$addon_id}) {
   die "FAIL: ExtensionSettings still contains $addon_id\n";
+}
+
+my $managed = $data->{policies}->{"3rdparty"}->{Extensions}->{$addon_id};
+if (ref($managed) eq "HASH" && exists $managed->{forceAdultBlock}) {
+  die "FAIL: managed policy forceAdultBlock still exists for $addon_id\n";
 }
 
 print "PASS: Contra policy entry is removed and remaining policies are valid JSON.\n";

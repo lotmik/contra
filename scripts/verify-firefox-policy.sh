@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_ADDON_ID="contra@lotmik"
+DEFAULT_ADDON_ID="contra@ltdmk"
 addon_id="${DEFAULT_ADDON_ID}"
 install_url=""
 firefox_path=""
@@ -15,7 +15,7 @@ Usage: scripts/verify-firefox-policy.sh [options]
 Verify Firefox enterprise policy for Contra Hardcore Mode.
 
 Options:
-  --addon-id ID            Add-on ID to verify (default: contra@lotmik)
+  --addon-id ID            Add-on ID to verify (default: contra@ltdmk)
   --install-url URL        Expected install URL (default: AMO latest URL from add-on ID)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
   --adult                  Verify force adult policy flag is present and true

@@ -1,4 +1,4 @@
-# contra. -- break out of the dopamine cage
+# contra. - break out of the dopamine cage
 
 If you have ever been on the interner before, you know how addictive it can become. You know how corporations fight for your attention only to monetize on it by showing you even more ads. And if you have tried website blockers before, you know how unreliable and easy-to-bypass they normally are.
 
@@ -11,8 +11,6 @@ contra. uses Firefox enterprise policy that keeps the add-on force-installed so 
 <summary>Firefox</summary>
 
 </details>
-
-
 
 ### Step 1: Install Contra from Firefox Add-ons Marketplace
 1. Install Contra from AMO.
@@ -37,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore
 
 ### Optional flags
 ```bash
-sudo bash hardcore-install.sh --addon-id contra@lotmik --on-conflict merge
+sudo bash hardcore-install.sh --addon-id contra@ltdmk --on-conflict merge
 ```
 
 ```bash
@@ -87,7 +85,7 @@ irm https://raw.githubusercontent.com/lotmik/contra/main/scripts/hardcore-instal
 1. Fully restart Firefox.
 2. Open `about:policies`.
 3. Confirm **Status: Active**.
-4. Confirm `ExtensionSettings` contains `contra@lotmik` with `installation_mode: force_installed`.
+4. Confirm `ExtensionSettings` contains `contra@ltdmk` with `installation_mode: force_installed`.
 5. Confirm the same entry includes `private_browsing: true`.
 
 ## Uninstall Hardcore Mode

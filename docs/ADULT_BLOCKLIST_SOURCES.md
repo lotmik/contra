@@ -24,7 +24,7 @@ Runtime refresh behavior:
 - If remote refresh fails, the last loaded in-memory set remains active.
 
 Enterprise forced mode:
-- Firefox policy key: `policies.3rdparty.Extensions["contra@lotmik"].forceAdultBlock: true`
+- Firefox policy key: `policies.3rdparty.Extensions["contra@ltdmk"].forceAdultBlock: true`
 - Effect: adult blocking is always enforced (even with the normal block toggle off) and the popup adult toggle is hidden.
 
 Latest generation in this workspace (2026-02-20):

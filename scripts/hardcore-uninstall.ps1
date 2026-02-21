@@ -7,7 +7,7 @@ Usage: scripts/hardcore-uninstall.ps1 [options]
 Remove Contra Firefox enterprise policy lock while preserving unrelated policies.
 
 Options:
-  --addon-id ID            Add-on ID to unlock (default: contra@lotmik)
+  --addon-id ID            Add-on ID to unlock (default: contra@ltdmk)
   --firefox-path PATH      Firefox directory path or firefox.exe path (default: auto-detect)
   --yes, -y                Non-interactive mode
   -h, --help               Show help
@@ -132,10 +132,24 @@ function Verify-PolicyUninstall([string]$PolicyFile, [string]$AddonId) {
     throw "FAIL: ExtensionSettings still contains $AddonId"
   }
 
+  $thirdParty = $policies.PSObject.Properties["3rdparty"].Value
+  if ($null -ne $thirdParty -and $thirdParty -is [System.Management.Automation.PSCustomObject]) {
+    $extensions = $thirdParty.PSObject.Properties["Extensions"].Value
+    if ($null -ne $extensions -and $extensions -is [System.Management.Automation.PSCustomObject]) {
+      $managedEntry = $extensions.PSObject.Properties[$AddonId].Value
+      if ($null -ne $managedEntry -and $managedEntry -is [System.Management.Automation.PSCustomObject]) {
+        $forceAdultBlock = $managedEntry.PSObject.Properties["forceAdultBlock"]
+        if ($null -ne $forceAdultBlock) {
+          throw "FAIL: managed forceAdultBlock still exists for $AddonId"
+        }
+      }
+    }
+  }
+
   Write-Host "PASS: Contra policy entry is removed and remaining policies are valid JSON."
 }
 
-$addonId = "contra@lotmik"
+$addonId = "contra@ltdmk"
 $yesMode = $false
 $firefoxPath = $null
 
@@ -230,6 +244,32 @@ try {
 
       if ($extensionSettings.PSObject.Properties.Count -eq 0) {
         $policies.PSObject.Properties.Remove("ExtensionSettings")
+      }
+    }
+
+    $thirdParty = $policies.PSObject.Properties["3rdparty"].Value
+    if ($null -ne $thirdParty -and $thirdParty -is [System.Management.Automation.PSCustomObject]) {
+      $extensions = $thirdParty.PSObject.Properties["Extensions"].Value
+      if ($null -ne $extensions -and $extensions -is [System.Management.Automation.PSCustomObject]) {
+        $managedEntry = $extensions.PSObject.Properties[$addonId].Value
+        if ($null -ne $managedEntry -and $managedEntry -is [System.Management.Automation.PSCustomObject]) {
+          if ($null -ne $managedEntry.PSObject.Properties["forceAdultBlock"]) {
+            $managedEntry.PSObject.Properties.Remove("forceAdultBlock")
+            $removed = $true
+          }
+
+          if ($managedEntry.PSObject.Properties.Count -eq 0) {
+            $extensions.PSObject.Properties.Remove($addonId)
+          }
+        }
+
+        if ($extensions.PSObject.Properties.Count -eq 0) {
+          $thirdParty.PSObject.Properties.Remove("Extensions")
+        }
+      }
+
+      if ($thirdParty.PSObject.Properties.Count -eq 0) {
+        $policies.PSObject.Properties.Remove("3rdparty")
       }
     }
 

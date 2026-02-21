@@ -26,7 +26,7 @@ Compatibility wrappers (legacy names):
 
 ## Hardcore policy scope
 Hardcore Mode sets Firefox policy for:
-- `policies.ExtensionSettings[contra@lotmik]`
+- `policies.ExtensionSettings[contra@ltdmk]`
 - `installation_mode: force_installed`
 - `private_browsing: true`
 
@@ -53,6 +53,6 @@ powershell -NoProfile -Command "[System.Management.Automation.Language.Parser]::
 1. Install Contra from AMO.
 2. Run Hardcore install script as admin.
 3. Restart Firefox.
-4. Confirm `about:policies` is Active and shows `contra@lotmik` force-installed with `private_browsing: true`.
+4. Confirm `about:policies` is Active and shows `contra@ltdmk` force-installed with `private_browsing: true`.
 5. Run uninstall script as admin.
 6. Restart Firefox and confirm Contra policy entry is removed.

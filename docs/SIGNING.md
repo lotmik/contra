@@ -8,7 +8,7 @@ Contra is AMO-first.
 - AMO manages updates.
 
 ## Manifest constraints
-- Keep `browser_specific_settings.gecko.id` stable as `contra@lotmik`.
+- Keep `browser_specific_settings.gecko.id` stable as `contra@ltdmk`.
 - Keep `browser_specific_settings.gecko.update_url` unset for AMO distribution.
 - Keep data collection declaration aligned with AMO requirements.
 

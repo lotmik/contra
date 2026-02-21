@@ -1,7 +1,7 @@
 {
   "policies": {
     "ExtensionSettings": {
-      "contra@lotmik": {
+      "contra@ltdmk": {
         "installation_mode": "force_installed",
         "install_url": "__CONTRA_INSTALL_URL__",
         "private_browsing": true

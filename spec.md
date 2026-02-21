@@ -6,7 +6,7 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 ## Scope
 - Add operational tooling to build an XPI package.
 - Add operational tooling to install and verify Firefox root-owned policies.
-- Add policy template for force-installing `contra@lotmik`.
+- Add policy template for force-installing `contra@ltdmk`.
 - Keep anti-tamper blocking of extension-management pages active.
 
 ## Out of Scope
@@ -269,7 +269,7 @@ Add a dedicated settings checkbox that enables blocking against a very large bui
 When Hardcore Mode policy is installed, enforce that Contra is allowed to run in private windows so private tabs remain visible to extension enforcement.
 
 ### Scope
-- Set `policies.ExtensionSettings[contra@lotmik].private_browsing: true` in Hardcore install payloads.
+- Set `policies.ExtensionSettings[contra@ltdmk].private_browsing: true` in Hardcore install payloads.
 - Preserve this flag in merge/overwrite flows on Linux/macOS and Windows installers.
 - Validate `private_browsing: true` in policy verification checks.
 - Keep behavior scoped to Contra's policy entry without introducing unrelated lock policies.

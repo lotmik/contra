@@ -7,7 +7,7 @@ Usage: scripts/hardcore-install.ps1 [options]
 Install Firefox enterprise policy so Contra cannot be removed/disabled.
 
 Options:
-  --addon-id ID            Add-on ID to lock (default: contra@lotmik)
+  --addon-id ID            Add-on ID to lock (default: contra@ltdmk)
   --install-url URL        Install URL used in policy (default: AMO latest URL from add-on ID)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
   --firefox-path PATH      Firefox directory path or firefox.exe path (default: auto-detect)
@@ -192,7 +192,7 @@ function Verify-PolicyInstall([string]$PolicyFile, [string]$AddonId, [string]$In
   Write-Host "PASS: policies.json is valid and Contra force-install policy is active."
 }
 
-$addonId = "contra@lotmik"
+$addonId = "contra@ltdmk"
 $installUrl = $null
 $onConflict = "merge"
 $onConflictExplicit = $false

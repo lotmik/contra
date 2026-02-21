@@ -402,7 +402,7 @@ function isViolation(url) {
     return true;
   }
 
-  if (!isBlocking) {
+  if (!isBlocking || isPausePositiveActive() || isTemporarilyDisabledForTest()) {
     return false;
   }
 
@@ -414,7 +414,7 @@ function isViolation(url) {
 }
 
 function shouldCloseForBlocking(url) {
-  if (!isBlocking && adultContentForcedByPolicy) {
+  if (!isBlocking && isAdultBlockingEnabled()) {
     return matchesAdultDomainRule(url);
   }
 
@@ -486,7 +486,7 @@ function isTemporarilyDisabledForTest() {
 }
 
 function shouldEnforceBlocking() {
-  if (adultContentForcedByPolicy) {
+  if (isAdultBlockingEnabled()) {
     return true;
   }
 
@@ -1012,6 +1012,29 @@ async function startPausePositiveSession(payload = {}) {
   return { ok: true, pauseUntil };
 }
 
+async function resumePausePositiveSession() {
+  if (!isBlocking) {
+    return { ok: false, error: "NOT_BLOCKING" };
+  }
+
+  if (unlockMode !== "timer") {
+    return { ok: false, error: "PAUSE_POSITIVE_TIMER_ONLY" };
+  }
+
+  if (!isPausePositiveActive()) {
+    return { ok: true, pauseUntil: 0 };
+  }
+
+  pauseUntil = 0;
+  await browser.alarms.clear(ALARM_PAUSE_POSITIVE);
+  await persistState();
+  reconcileAggressiveTamperMonitor();
+  await enforceAllOpenTabs();
+  await sendPopupMessage({ type: "PAUSE_POSITIVE_ENDED" });
+
+  return { ok: true, pauseUntil: 0 };
+}
+
 async function reconcileTimers() {
   let changed = false;
 
@@ -1129,6 +1152,10 @@ browser.runtime.onMessage.addListener((message = {}) => {
 
   if (type === "REQUEST_PAUSE_POSITIVE") {
     return startPausePositiveSession(payload);
+  }
+
+  if (type === "RESUME_PAUSE_POSITIVE") {
+    return resumePausePositiveSession();
   }
 
   if (type === "TEMP_DISABLE_FOR_TEST") {
