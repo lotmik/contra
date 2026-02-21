@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "contra.",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Go deep, control your life.",
   "permissions": [
     "tabs",
@@ -39,7 +39,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "contra@lotmik",
-      "strict_min_version": "128.8",
+      "strict_min_version": "130.0",
       "data_collection_permissions": {
         "required": [
           "none"
