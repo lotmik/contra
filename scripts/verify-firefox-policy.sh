@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_ADDON_ID="contra@ltdmk"
+# TEMP local ID. If publishing cleanup is requested, switch back to "contra@ltdmk".
+DEFAULT_ADDON_ID="contra@local"
+DEFAULT_LOCAL_XPI_PATH="/home/mik/code/contra/dist/contra@local.xpi"
 addon_id="${DEFAULT_ADDON_ID}"
 install_url=""
 firefox_path=""
@@ -15,8 +17,8 @@ Usage: scripts/verify-firefox-policy.sh [options]
 Verify Firefox enterprise policy for Contra Hardcore Mode.
 
 Options:
-  --addon-id ID            Add-on ID to verify (default: contra@ltdmk)
-  --install-url URL        Expected install URL (default: AMO latest URL from add-on ID)
+  --addon-id ID            Add-on ID to verify (default: contra@local)
+  --install-url URL        Expected install URL (default: file:///home/mik/code/contra/dist/contra@local.xpi)
   --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
   --adult                  Verify force adult policy flag is present and true
   --no-adult               Verify only force-install/private-browsing policy
@@ -46,10 +48,8 @@ url_encode() {
 }
 
 build_default_install_url() {
-  local target_addon_id="$1"
-  local encoded
-  encoded="$(url_encode "${target_addon_id}")"
-  printf 'https://addons.mozilla.org/firefox/downloads/latest/%s/latest.xpi' "${encoded}"
+  local _target_addon_id="$1"
+  printf 'file://%s' "${DEFAULT_LOCAL_XPI_PATH}"
 }
 
 is_perl_jsonpp_available() {

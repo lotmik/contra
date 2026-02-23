@@ -7,7 +7,7 @@ Usage: scripts/hardcore-uninstall.ps1 [options]
 Remove Contra Firefox enterprise policy lock while preserving unrelated policies.
 
 Options:
-  --addon-id ID            Add-on ID to unlock (default: contra@ltdmk)
+  --addon-id ID            Add-on ID to unlock (default: contra@local)
   --firefox-path PATH      Firefox directory path or firefox.exe path (default: auto-detect)
   --yes, -y                Non-interactive mode
   -h, --help               Show help
@@ -149,7 +149,8 @@ function Verify-PolicyUninstall([string]$PolicyFile, [string]$AddonId) {
   Write-Host "PASS: Contra policy entry is removed and remaining policies are valid JSON."
 }
 
-$addonId = "contra@ltdmk"
+# TEMP local ID. If publishing cleanup is requested, switch back to "contra@ltdmk".
+$addonId = "contra@local"
 $yesMode = $false
 $firefoxPath = $null
 

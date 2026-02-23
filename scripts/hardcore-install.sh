@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_ADDON_ID="contra@ltdmk"
+# TEMP local ID. If publishing cleanup is requested, switch back to "contra@ltdmk".
+DEFAULT_ADDON_ID="contra@local"
+DEFAULT_LOCAL_XPI_PATH="/home/mik/code/contra/dist/contra@local.xpi"
 addon_id="${DEFAULT_ADDON_ID}"
 install_url=""
 on_conflict="merge"
@@ -12,6 +14,10 @@ policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 skip_admin_check="${CONTRA_SKIP_ADMIN_CHECK:-0}"
 force_adult_block=false
 force_adult_block_explicit=false
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/firefox-policy-paths.sh
+source "${SCRIPT_DIR}/lib/firefox-policy-paths.sh"
 
 step() {
   local index="$1"
@@ -26,10 +32,10 @@ Usage: scripts/hardcore-install.sh [options]
 Install Firefox enterprise policy so Contra cannot be removed/disabled.
 
 Options:
-  --addon-id ID            Add-on ID to lock (default: contra@ltdmk)
-  --install-url URL        Install URL used in policy (default: AMO latest URL from add-on ID)
+  --addon-id ID            Add-on ID to lock (default: contra@local)
+  --install-url URL        Install URL used in policy (default: file:///home/mik/code/contra/dist/contra@local.xpi)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
-  --firefox-path PATH      macOS: Firefox .app path (default: auto-detect)
+  --firefox-path PATH      Optional Firefox app/bin/install path to include (default: auto-detect)
   --adult                  Force-enable adult blocking via enterprise policy (hides toggle in UI)
   --no-adult               Do not set force adult policy flag
   --yes, -y                Non-interactive mode (use selected/default options)
@@ -59,10 +65,8 @@ url_encode() {
 }
 
 build_default_install_url() {
-  local target_addon_id="$1"
-  local encoded
-  encoded="$(url_encode "${target_addon_id}")"
-  printf 'https://addons.mozilla.org/firefox/downloads/latest/%s/latest.xpi' "${encoded}"
+  local _target_addon_id="$1"
+  printf 'file://%s' "${DEFAULT_LOCAL_XPI_PATH}"
 }
 
 json_escape() {
@@ -125,69 +129,6 @@ choose_conflict_mode_without_merge() {
   done
 }
 
-resolve_policy_file() {
-  local os_name="$1"
-
-  if [[ -n "${policy_file_override}" ]]; then
-    printf '%s' "${policy_file_override}"
-    return 0
-  fi
-
-  if [[ "${os_name}" == "Linux" ]]; then
-    printf '%s' '/etc/firefox/policies/policies.json'
-    return 0
-  fi
-
-  if [[ "${os_name}" != "Darwin" ]]; then
-    echo "Unsupported operating system: ${os_name}" >&2
-    echo "Use scripts/hardcore-install.ps1 on Windows." >&2
-    return 1
-  fi
-
-  local app_path=""
-  if [[ -n "${firefox_path}" ]]; then
-    case "${firefox_path}" in
-      *.app)
-        app_path="${firefox_path}"
-        ;;
-      */Contents/MacOS/firefox)
-        app_path="${firefox_path%/Contents/MacOS/firefox}"
-        ;;
-      */Contents/Resources/distribution)
-        app_path="${firefox_path%/Contents/Resources/distribution}"
-        ;;
-      *)
-        if [[ -d "${firefox_path}/Contents/Resources" ]]; then
-          app_path="${firefox_path}"
-        fi
-        ;;
-    esac
-  fi
-
-  if [[ -z "${app_path}" ]]; then
-    local candidates=(
-      "/Applications/Firefox.app"
-      "/Applications/Firefox Developer Edition.app"
-      "/Applications/Firefox Nightly.app"
-    )
-    local candidate
-    for candidate in "${candidates[@]}"; do
-      if [[ -d "${candidate}" ]]; then
-        app_path="${candidate}"
-        break
-      fi
-    done
-  fi
-
-  if [[ -z "${app_path}" ]]; then
-    echo "Could not locate Firefox.app." >&2
-    echo "Pass --firefox-path '/Applications/Firefox.app' (or your custom Firefox .app path)." >&2
-    return 1
-  fi
-
-  printf '%s' "${app_path}/Contents/Resources/distribution/policies.json"
-}
-
 render_target_policy_json() {
   local output_file="$1"
   local addon_id_escaped install_url_escaped
@@ -198,6 +139,7 @@ render_target_policy_json() {
     cat > "${output_file}" <<EOF_JSON
 {
   "policies": {
+    "DisableSafeMode": true,
     "ExtensionSettings": {
       "${addon_id_escaped}": {
         "installation_mode": "force_installed",
@@ -221,6 +163,7 @@ EOF_JSON
   cat > "${output_file}" <<EOF_JSON
 {
   "policies": {
+    "DisableSafeMode": true,
     "ExtensionSettings": {
       "${addon_id_escaped}": {
         "installation_mode": "force_installed",
@@ -261,6 +204,7 @@ if (ref($data) ne "HASH") {
 }
 
 $data->{policies} = {} if !exists $data->{policies} || ref($data->{policies}) ne "HASH";
+$data->{policies}->{DisableSafeMode} = JSON::PP::true;
 $data->{policies}->{ExtensionSettings} = {}
   if !exists $data->{policies}->{ExtensionSettings} || ref($data->{policies}->{ExtensionSettings}) ne "HASH";
 
@@ -335,6 +279,10 @@ if (ref($data) ne "HASH") {
   die "FAIL: policies.json top-level is not a JSON object\n";
 }
 
+if (!($data->{policies}->{DisableSafeMode} // 0)) {
+  die "FAIL: DisableSafeMode is not true\n";
+}
+
 my $settings = $data->{policies}->{ExtensionSettings};
 if (ref($settings) ne "HASH") {
   die "FAIL: missing policies.ExtensionSettings object\n";
@@ -383,6 +331,10 @@ print "PASS: policies.json is valid and Contra force-install policy is active.\n
     echo "FAIL: missing ExtensionSettings in ${policy_file}" >&2
     return 1
   fi
+  if ! grep -Eq '"DisableSafeMode"[[:space:]]*:[[:space:]]*true' "${policy_file}"; then
+    echo "FAIL: DisableSafeMode is not true in ${policy_file}" >&2
+    return 1
+  fi
   if ! grep -Fq "\"${addon_id}\"" "${policy_file}"; then
     echo "FAIL: missing add-on entry ${addon_id} in ${policy_file}" >&2
     return 1
@@ -416,6 +368,61 @@ print "PASS: policies.json is valid and Contra force-install policy is active.\n
   fi
 
   echo "PASS: basic policy checks passed (JSON parser unavailable for deep validation)."
+}
+
+collect_policy_state() {
+  local policy_file="$1"
+  local addon_id_value="$2"
+  local output_file="$3"
+
+  perl -MJSON::PP -e '
+use strict;
+use warnings;
+
+my ($path, $addon_id) = @ARGV;
+if (!-f $path) {
+  print "FILE_EXISTS=0\n";
+  print "POLICY_KEYS=<none>\n";
+  print "HAS_DISABLE_SAFE_MODE=0\n";
+  print "HAS_EXTENSION_ENTRY=0\n";
+  print "HAS_FORCE_ADULT=0\n";
+  exit 0;
+}
+
+open my $fh, "<", $path or die "Could not read $path\n";
+local $/;
+my $raw = <$fh>;
+close $fh;
+
+my $data = eval { JSON::PP::decode_json($raw) };
+if ($@) {
+  die "Invalid JSON in $path\n";
+}
+die "Top-level JSON must be an object in $path\n" if ref($data) ne "HASH";
+
+my $policies = $data->{policies};
+my @policy_keys = ();
+@policy_keys = sort keys %{$policies} if ref($policies) eq "HASH";
+
+my $has_disable = (ref($policies) eq "HASH" && ($policies->{DisableSafeMode} // 0)) ? 1 : 0;
+my $settings = (ref($policies) eq "HASH") ? $policies->{ExtensionSettings} : undef;
+my $has_extension = (ref($settings) eq "HASH" && ref($settings->{$addon_id}) eq "HASH") ? 1 : 0;
+my $extensions = (ref($policies) eq "HASH" && ref($policies->{"3rdparty"}) eq "HASH") ? $policies->{"3rdparty"}->{Extensions} : undef;
+my $managed = (ref($extensions) eq "HASH") ? $extensions->{$addon_id} : undef;
+my $has_force_adult = (ref($managed) eq "HASH" && ($managed->{forceAdultBlock} // 0)) ? 1 : 0;
+
+print "FILE_EXISTS=1\n";
+print "POLICY_KEYS=" . (@policy_keys ? join(",", @policy_keys) : "<none>") . "\n";
+print "HAS_DISABLE_SAFE_MODE=$has_disable\n";
+print "HAS_EXTENSION_ENTRY=$has_extension\n";
+print "HAS_FORCE_ADULT=$has_force_adult\n";
+' "${policy_file}" "${addon_id_value}" > "${output_file}"
+}
+
+state_value() {
+  local state_file="$1"
+  local key="$2"
+  awk -F= -v key="${key}" '$1==key {print substr($0, index($0, "=") + 1); exit}' "${state_file}"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -526,11 +533,23 @@ fi
 
 effective_conflict_mode="${on_conflict}"
 
-step 2 "Detecting Firefox policy location"
-policy_file="$(resolve_policy_file "${os_name}")"
-policy_dir="$(dirname "${policy_file}")"
+step 2 "Detecting Firefox policy locations"
+policy_files=()
+while IFS= read -r policy_candidate; do
+  if [[ -n "${policy_candidate}" ]]; then
+    policy_files+=("${policy_candidate}")
+  fi
+done < <(contra_collect_policy_files "${os_name}" "${firefox_path}" "${policy_file_override}")
 
-echo "Policy file target: ${policy_file}"
+if [[ ${#policy_files[@]} -eq 0 ]]; then
+  echo "Could not determine any Firefox policy file targets." >&2
+  exit 1
+fi
+
+echo "Policy file targets:"
+for policy_file in "${policy_files[@]}"; do
+  echo "  - ${policy_file}"
+done
 echo "Add-on ID: ${addon_id}"
 echo "Install URL: ${install_url}"
 echo "Force adult policy: ${force_adult_block}"
@@ -542,67 +561,123 @@ trap 'rm -rf "${work_dir}"' EXIT
 target_policy_json="${work_dir}/contra-policy-target.json"
 render_target_policy_json "${target_policy_json}"
 
-final_policy_json="${work_dir}/contra-policy-final.json"
+prompted_conflict_choice=false
+policy_index=0
+failed_targets=0
+updated_targets=0
+created_targets=0
+installed_policy_list="DisableSafeMode, ExtensionSettings[${addon_id}]{installation_mode,install_url,private_browsing}"
+if [[ "${force_adult_block}" == true ]]; then
+  installed_policy_list+=", 3rdparty.Extensions[${addon_id}].forceAdultBlock"
+fi
 
-step 4 "Resolving existing policies.json conflicts"
-if [[ -f "${policy_file}" ]]; then
-  backup_dir="${policy_dir}/contra-policy-backups"
-  timestamp="$(date -u +%Y%m%d%H%M%S)"
-  backup_path="${backup_dir}/policies-${timestamp}.json"
+step 4 "Applying policy updates"
+for policy_file in "${policy_files[@]}"; do
+  policy_index=$((policy_index + 1))
+  policy_dir="$(dirname "${policy_file}")"
+  final_policy_json="${work_dir}/contra-policy-final-${policy_index}.json"
+  merge_error_file="${work_dir}/merge-error-${policy_index}.log"
+  state_file="${work_dir}/state-${policy_index}.txt"
+  file_existed=false
+  applied_mode="create"
 
-  install -d -m 0755 "${backup_dir}"
-  cp "${policy_file}" "${backup_path}"
-  chmod 0644 "${backup_path}"
-  echo "Backup created: ${backup_path}"
+  echo "Target: ${policy_file}"
 
-  if [[ "${on_conflict_explicit}" == false && "${yes_mode}" == false ]]; then
-    effective_conflict_mode="$(choose_conflict_mode_interactive)"
-  fi
+  if [[ -f "${policy_file}" ]]; then
+    file_existed=true
+    backup_dir="${policy_dir}/contra-policy-backups"
+    timestamp="$(date -u +%Y%m%d%H%M%S)"
+    backup_path="${backup_dir}/policies-${timestamp}-${policy_index}.json"
 
-  case "${effective_conflict_mode}" in
-    abort)
-      echo "Install aborted by user choice after backup."
-      exit 0
-      ;;
-    overwrite)
-      cp "${target_policy_json}" "${final_policy_json}"
-      ;;
-    merge)
-      if ! is_perl_jsonpp_available; then
-        echo "Merge selected, but Perl JSON::PP is unavailable." >&2
-        if [[ "${yes_mode}" == true ]]; then
-          echo "Re-run with --on-conflict overwrite or install Perl JSON::PP." >&2
-          exit 1
-        fi
-        effective_conflict_mode="$(choose_conflict_mode_without_merge)"
-        if [[ "${effective_conflict_mode}" == "abort" ]]; then
-          echo "Install aborted by user choice after backup."
-          exit 0
-        fi
+    install -d -m 0755 "${backup_dir}"
+    cp "${policy_file}" "${backup_path}"
+    chmod 0644 "${backup_path}"
+    echo "  Backup: ${backup_path}"
+
+    if [[ "${on_conflict_explicit}" == false && "${yes_mode}" == false && "${prompted_conflict_choice}" == false ]]; then
+      effective_conflict_mode="$(choose_conflict_mode_interactive)"
+      prompted_conflict_choice=true
+    fi
+
+    case "${effective_conflict_mode}" in
+      abort)
+        echo "  Install aborted by user choice."
+        exit 0
+        ;;
+      overwrite)
         cp "${target_policy_json}" "${final_policy_json}"
-      else
-        merge_policy_json_with_existing \
+        applied_mode="overwrite"
+        ;;
+      merge)
+        if merge_policy_json_with_existing \
           "${policy_file}" \
           "${final_policy_json}" \
           "${force_adult_block}" \
-          "${force_adult_block_explicit}"
-      fi
-      ;;
-  esac
-else
-  cp "${target_policy_json}" "${final_policy_json}"
+          "${force_adult_block_explicit}" \
+          2>"${merge_error_file}"; then
+          applied_mode="merge"
+        else
+          cp "${target_policy_json}" "${final_policy_json}"
+          applied_mode="overwrite (merge failed)"
+          echo "  WARN: merge failed, used overwrite fallback: $(tr '\n' ' ' < "${merge_error_file}")"
+        fi
+        ;;
+    esac
+  else
+    cp "${target_policy_json}" "${final_policy_json}"
+  fi
+
+  if ! install -d -m 0755 "${policy_dir}"; then
+    echo "  ERROR: could not create policy directory ${policy_dir}"
+    failed_targets=$((failed_targets + 1))
+    continue
+  fi
+
+  if ! install -m 0644 "${final_policy_json}" "${policy_file}"; then
+    echo "  ERROR: could not write ${policy_file}"
+    failed_targets=$((failed_targets + 1))
+    continue
+  fi
+
+  if ! verify_policy_install "${policy_file}" "${force_adult_block}" >/dev/null 2>&1; then
+    echo "  ERROR: verification failed for ${policy_file}"
+    failed_targets=$((failed_targets + 1))
+    continue
+  fi
+
+  if ! collect_policy_state "${policy_file}" "${addon_id}" "${state_file}"; then
+    echo "  ERROR: unable to read final policy state for ${policy_file}"
+    failed_targets=$((failed_targets + 1))
+    continue
+  fi
+
+  policy_keys_left="$(state_value "${state_file}" "POLICY_KEYS")"
+  echo "  Installed policies: ${installed_policy_list}"
+  echo "  Policies left in file: ${policy_keys_left}"
+  echo "  Action used: ${applied_mode}"
+
+  if [[ "${file_existed}" == true ]]; then
+    updated_targets=$((updated_targets + 1))
+  else
+    created_targets=$((created_targets + 1))
+  fi
+done
+
+step 5 "Install summary"
+echo "Created policy files: ${created_targets}"
+echo "Updated policy files: ${updated_targets}"
+echo "Failed policy files: ${failed_targets}"
+
+step 6 "Result"
+if [[ "${failed_targets}" -gt 0 ]]; then
+  echo "Hardcore Mode install finished with errors."
+  echo "Fix failed targets and re-run install."
+  exit 1
 fi
 
-step 5 "Writing policies.json"
-install -d -m 0755 "${policy_dir}"
-install -m 0644 "${final_policy_json}" "${policy_file}"
-
-step 6 "Verifying installation"
-verify_policy_install "${policy_file}" "${force_adult_block}"
-
-echo
 echo "Hardcore Mode install complete."
 echo "Next steps:"
 echo "  1. Restart Firefox completely."
 echo "  2. Open about:policies and confirm Status is Active."
 echo "  3. Confirm ExtensionSettings contains ${addon_id}."
+echo "  4. Confirm DisableSafeMode is true."

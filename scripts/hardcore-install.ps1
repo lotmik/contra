@@ -7,8 +7,8 @@ Usage: scripts/hardcore-install.ps1 [options]
 Install Firefox enterprise policy so Contra cannot be removed/disabled.
 
 Options:
-  --addon-id ID            Add-on ID to lock (default: contra@ltdmk)
-  --install-url URL        Install URL used in policy (default: AMO latest URL from add-on ID)
+  --addon-id ID            Add-on ID to lock (default: contra@local)
+  --install-url URL        Install URL used in policy (default: file:///home/mik/code/contra/dist/contra@local.xpi)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
   --firefox-path PATH      Firefox directory path or firefox.exe path (default: auto-detect)
   --yes, -y                Non-interactive mode (use selected/default options)
@@ -192,7 +192,9 @@ function Verify-PolicyInstall([string]$PolicyFile, [string]$AddonId, [string]$In
   Write-Host "PASS: policies.json is valid and Contra force-install policy is active."
 }
 
-$addonId = "contra@ltdmk"
+# TEMP local ID. If publishing cleanup is requested, switch back to "contra@ltdmk".
+$addonId = "contra@local"
+$defaultLocalXpiPath = "/home/mik/code/contra/dist/contra@local.xpi"
 $installUrl = $null
 $onConflict = "merge"
 $onConflictExplicit = $false
@@ -268,8 +270,7 @@ if ($onConflict -notin @("merge", "overwrite", "abort")) {
 }
 
 if ([string]::IsNullOrWhiteSpace($installUrl)) {
-  $encodedAddonId = [System.Uri]::EscapeDataString($addonId)
-  $installUrl = "https://addons.mozilla.org/firefox/downloads/latest/$encodedAddonId/latest.xpi"
+  $installUrl = "file://$defaultLocalXpiPath"
 }
 
 if (-not ($installUrl.StartsWith("https://") -or $installUrl.StartsWith("file://"))) {
