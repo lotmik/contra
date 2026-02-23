@@ -34,7 +34,7 @@ url_encode() {
   for ((index = 0; index < ${#raw}; index += 1)); do
     ch="${raw:index:1}"
     case "${ch}" in
-      [a-zA-Z0-9.~_-])
+      [a-zA-Z0-9.~_/-])
         encoded+="${ch}"
         ;;
       *)
@@ -49,7 +49,9 @@ url_encode() {
 
 build_default_install_url() {
   local _target_addon_id="$1"
-  printf 'file://%s' "${DEFAULT_LOCAL_XPI_PATH}"
+  local encoded
+  encoded="$(url_encode "${DEFAULT_LOCAL_XPI_PATH}")"
+  printf 'file://%s' "${encoded}"
 }
 
 is_perl_jsonpp_available() {

@@ -37,6 +37,21 @@ is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
+is_policy_json_valid() {
+  local policy_file="$1"
+  perl -MJSON::PP -e '
+use strict;
+use warnings;
+my ($path) = @ARGV;
+open my $fh, "<", $path or exit 1;
+local $/;
+my $raw = <$fh>;
+close $fh;
+my $data = eval { JSON::PP::decode_json($raw) };
+exit(($@ || ref($data) ne "HASH") ? 1 : 0);
+' "${policy_file}" >/dev/null 2>&1
+}
+
 remove_addon_policy_entry() {
   local input_file="$1"
   local addon_id_value="$2"
@@ -347,12 +362,6 @@ for policy_file in "${policy_files[@]}"; do
     continue
   fi
 
-  if ! collect_policy_state "${policy_file}" "${addon_id}" "${before_state_file}" 2>"${remove_error_file}"; then
-    echo "  ERROR: cannot parse existing policy JSON; skipped target: $(tr '\n' ' ' < "${remove_error_file}")"
-    failed_targets=$((failed_targets + 1))
-    continue
-  fi
-
   backup_dir="${policy_dir}/contra-policy-backups"
   timestamp="$(date -u +%Y%m%d%H%M%S)"
   backup_path="${backup_dir}/policies-${timestamp}-${policy_index}.json"
@@ -369,6 +378,26 @@ for policy_file in "${policy_files[@]}"; do
   fi
   chmod 0644 "${backup_path}"
   echo "  Backup: ${backup_path}"
+
+  if ! is_policy_json_valid "${policy_file}"; then
+    if ! rm -f "${policy_file}"; then
+      echo "  ERROR: invalid JSON detected but failed to delete corrupted file ${policy_file}"
+      failed_targets=$((failed_targets + 1))
+      continue
+    fi
+    removed_all_targets=$((removed_all_targets + 1))
+    echo "  Invalid JSON detected; deleted corrupted policies file."
+    echo "  Uninstalled policies: unknown (corrupted file removed)"
+    echo "  Targeted policies left: none"
+    echo "  Policies left in file: <none>"
+    continue
+  fi
+
+  if ! collect_policy_state "${policy_file}" "${addon_id}" "${before_state_file}" 2>"${remove_error_file}"; then
+    echo "  ERROR: cannot parse existing policy JSON; skipped target: $(tr '\n' ' ' < "${remove_error_file}")"
+    failed_targets=$((failed_targets + 1))
+    continue
+  fi
 
   if ! remove_result="$(remove_addon_policy_entry "${policy_file}" "${addon_id}" "${updated_policy_json}" 2>"${remove_error_file}")"; then
     echo "  ERROR: failed to remove Contra policy entry: $(tr '\n' ' ' < "${remove_error_file}")"

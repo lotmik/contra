@@ -119,6 +119,7 @@ contra_collect_policy_files() {
   local normalized_path=""
   local -a candidates=()
   local candidate
+  local install_root=""
 
   if [[ -n "${policy_file_override}" ]]; then
     printf '%s\n' "${policy_file_override}"
@@ -140,8 +141,40 @@ contra_collect_policy_files() {
       fi
       if [[ -f "${candidate}" || -d "$(dirname "${candidate}")" ]]; then
         candidates+=("${candidate}")
+        continue
       fi
+
+      case "${candidate}" in
+        */distribution/policies.json)
+          install_root="${candidate%/distribution/policies.json}"
+          if [[ -d "${install_root}" ]]; then
+            candidates+=("${candidate}")
+          fi
+          ;;
+        */policies/policies.json)
+          install_root="${candidate%/policies/policies.json}"
+          if [[ -d "${install_root}" ]]; then
+            candidates+=("${candidate}")
+          fi
+          ;;
+      esac
     done < <(contra_emit_known_linux_policy_files)
+
+    if [[ -d "/opt/firefox-developer" ]]; then
+      candidates+=("/opt/firefox-developer/distribution/policies.json")
+    fi
+
+    if [[ -d "/opt/firefox-developer-edition" ]]; then
+      candidates+=("/opt/firefox-developer-edition/distribution/policies.json")
+    fi
+
+    if [[ -d "/opt/firefox-nightly" ]]; then
+      candidates+=("/opt/firefox-nightly/distribution/policies.json")
+    fi
+
+    if [[ -d "/opt/firefox" ]]; then
+      candidates+=("/opt/firefox/distribution/policies.json")
+    fi
 
     if [[ ${#candidates[@]} -eq 0 ]]; then
       candidates+=('/etc/firefox/policies/policies.json')

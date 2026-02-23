@@ -5,6 +5,7 @@ set -euo pipefail
 DEFAULT_ADDON_ID="contra@local"
 DEFAULT_LOCAL_XPI_PATH="/home/mik/code/contra/dist/contra@local.xpi"
 addon_id="${DEFAULT_ADDON_ID}"
+addon_id_explicit=false
 install_url=""
 on_conflict="merge"
 on_conflict_explicit=false
@@ -51,7 +52,7 @@ url_encode() {
   for ((index = 0; index < ${#raw}; index += 1)); do
     ch="${raw:index:1}"
     case "${ch}" in
-      [a-zA-Z0-9.~_-])
+      [a-zA-Z0-9.~_/-])
         encoded+="${ch}"
         ;;
       *)
@@ -69,6 +70,12 @@ build_default_install_url() {
   printf 'file://%s' "${DEFAULT_LOCAL_XPI_PATH}"
 }
 
+url_decode() {
+  local encoded="$1"
+  encoded="${encoded//+/ }"
+  printf '%b' "${encoded//%/\\x}"
+}
+
 json_escape() {
   local raw="$1"
   raw="${raw//\\/\\\\}"
@@ -81,6 +88,83 @@ json_escape() {
 
 is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
+}
+
+is_policy_json_valid() {
+  local policy_file="$1"
+  perl -MJSON::PP -e '
+use strict;
+use warnings;
+my ($path) = @ARGV;
+open my $fh, "<", $path or exit 1;
+local $/;
+my $raw = <$fh>;
+close $fh;
+my $data = eval { JSON::PP::decode_json($raw) };
+exit(($@ || ref($data) ne "HASH") ? 1 : 0);
+' "${policy_file}" >/dev/null 2>&1
+}
+
+extract_addon_id_from_xpi() {
+  local xpi_path="$1"
+  unzip -p "${xpi_path}" manifest.json 2>/dev/null | perl -MJSON::PP -e '
+use strict;
+use warnings;
+local $/;
+my $raw = <STDIN>;
+exit 1 if !defined $raw || $raw !~ /\S/;
+my $data = eval { JSON::PP::decode_json($raw) };
+exit 1 if $@ || ref($data) ne "HASH";
+my $id = $data->{browser_specific_settings}->{gecko}->{id};
+exit 1 if !defined $id || $id eq "";
+print $id;
+' 2>/dev/null
+}
+
+ensure_local_install_consistency() {
+  local install_url_value="$1"
+  local local_path=""
+  local local_path_decoded=""
+  local local_path_encoded=""
+  local xpi_addon_id=""
+
+  case "${install_url_value}" in
+    file://*)
+      local_path="${install_url_value#file://}"
+      local_path="${local_path#localhost/}"
+      local_path="/${local_path#/}"
+      local_path_decoded="$(url_decode "${local_path}")"
+
+      if [[ ! -f "${local_path_decoded}" ]]; then
+        echo "Local install file does not exist: ${local_path_decoded}" >&2
+        exit 1
+      fi
+      if [[ ! -r "${local_path_decoded}" ]]; then
+        echo "Local install file is not readable: ${local_path_decoded}" >&2
+        exit 1
+      fi
+
+      local_path_encoded="$(url_encode "${local_path_decoded}")"
+      install_url="file://${local_path_encoded}"
+
+      if command -v unzip >/dev/null 2>&1 && is_perl_jsonpp_available; then
+        if xpi_addon_id="$(extract_addon_id_from_xpi "${local_path_decoded}")" && [[ -n "${xpi_addon_id}" ]]; then
+          if [[ "${addon_id_explicit}" == true && "${addon_id}" != "${xpi_addon_id}" ]]; then
+            echo "Addon ID mismatch: --addon-id=${addon_id} but XPI manifest id=${xpi_addon_id}" >&2
+            exit 1
+          fi
+          if [[ "${addon_id_explicit}" == false && "${addon_id}" != "${xpi_addon_id}" ]]; then
+            echo "Using add-on ID from XPI manifest: ${xpi_addon_id}" >&2
+            addon_id="${xpi_addon_id}"
+          fi
+        else
+          echo "WARN: could not extract add-on ID from local XPI; proceeding with add-on ID ${addon_id}." >&2
+        fi
+      else
+        echo "WARN: unzip or Perl JSON::PP unavailable; cannot validate local XPI add-on ID." >&2
+      fi
+      ;;
+  esac
 }
 
 choose_conflict_mode_interactive() {
@@ -433,10 +517,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --addon-id)
       addon_id="${2:-}"
+      addon_id_explicit=true
       shift 2
       ;;
     --addon-id=*)
       addon_id="${1#*=}"
+      addon_id_explicit=true
       shift
       ;;
     --install-url)
@@ -514,6 +600,8 @@ if [[ "${install_url}" != https://* && "${install_url}" != file://* ]]; then
   echo "--install-url must start with https:// or file://" >&2
   exit 1
 fi
+
+ensure_local_install_consistency "${install_url}"
 
 step 1 "Checking admin permissions and prerequisites"
 if [[ "${skip_admin_check}" != "1" && "${EUID}" -ne 0 ]]; then
@@ -594,35 +682,47 @@ for policy_file in "${policy_files[@]}"; do
     chmod 0644 "${backup_path}"
     echo "  Backup: ${backup_path}"
 
-    if [[ "${on_conflict_explicit}" == false && "${yes_mode}" == false && "${prompted_conflict_choice}" == false ]]; then
-      effective_conflict_mode="$(choose_conflict_mode_interactive)"
-      prompted_conflict_choice=true
-    fi
+    if ! is_policy_json_valid "${policy_file}"; then
+      if ! rm -f "${policy_file}"; then
+        echo "  ERROR: invalid JSON detected but failed to delete corrupted file ${policy_file}"
+        failed_targets=$((failed_targets + 1))
+        continue
+      fi
+      cp "${target_policy_json}" "${final_policy_json}"
+      applied_mode="create (deleted invalid JSON file)"
+      file_existed=false
+      echo "  Invalid JSON detected; deleted corrupted policies file."
+    else
+      if [[ "${on_conflict_explicit}" == false && "${yes_mode}" == false && "${prompted_conflict_choice}" == false ]]; then
+        effective_conflict_mode="$(choose_conflict_mode_interactive)"
+        prompted_conflict_choice=true
+      fi
 
-    case "${effective_conflict_mode}" in
-      abort)
-        echo "  Install aborted by user choice."
-        exit 0
-        ;;
-      overwrite)
-        cp "${target_policy_json}" "${final_policy_json}"
-        applied_mode="overwrite"
-        ;;
-      merge)
-        if merge_policy_json_with_existing \
-          "${policy_file}" \
-          "${final_policy_json}" \
-          "${force_adult_block}" \
-          "${force_adult_block_explicit}" \
-          2>"${merge_error_file}"; then
-          applied_mode="merge"
-        else
+      case "${effective_conflict_mode}" in
+        abort)
+          echo "  Install aborted by user choice."
+          exit 0
+          ;;
+        overwrite)
           cp "${target_policy_json}" "${final_policy_json}"
-          applied_mode="overwrite (merge failed)"
-          echo "  WARN: merge failed, used overwrite fallback: $(tr '\n' ' ' < "${merge_error_file}")"
-        fi
-        ;;
-    esac
+          applied_mode="overwrite"
+          ;;
+        merge)
+          if merge_policy_json_with_existing \
+            "${policy_file}" \
+            "${final_policy_json}" \
+            "${force_adult_block}" \
+            "${force_adult_block_explicit}" \
+            2>"${merge_error_file}"; then
+            applied_mode="merge"
+          else
+            cp "${target_policy_json}" "${final_policy_json}"
+            applied_mode="overwrite (merge failed)"
+            echo "  WARN: merge failed, used overwrite fallback: $(tr '\n' ' ' < "${merge_error_file}")"
+          fi
+          ;;
+      esac
+    fi
   else
     cp "${target_policy_json}" "${final_policy_json}"
   fi
