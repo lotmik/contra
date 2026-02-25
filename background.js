@@ -22,6 +22,8 @@ const TAMPER_PAGES = [
   "about:debugging",
   "about:config",
   "about:policies",
+  "about:support",
+  "about:profiles",
   "about:preferences",
   "about:preferences#addons",
   "chrome://extensions",

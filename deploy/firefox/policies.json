@@ -1,5 +1,7 @@
 {
   "policies": {
+    "BlockAboutProfiles": true,
+    "BlockAboutSupport": true,
     "ExtensionSettings": {
       "contra@ltdmk": {
         "installation_mode": "force_installed",

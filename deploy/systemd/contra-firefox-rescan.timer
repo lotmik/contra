@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Contra Firefox Policy/Profile Rescan periodically
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=contra-firefox-rescan.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

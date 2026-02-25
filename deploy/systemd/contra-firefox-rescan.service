@@ -1,0 +1,8 @@
+[Unit]
+Description=Contra Firefox Policy/Profile Rescan
+After=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/contra/contra-firefox-rescan.env
+ExecStart=/usr/bin/env bash __CONTRA_REPO_SCRIPTS_DIR__/contra-firefox-rescan.sh
