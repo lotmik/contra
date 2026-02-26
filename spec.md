@@ -14,28 +14,24 @@ Enforce non-removable extension behavior for non-sudo users in Firefox by using 
 - Supporting Flatpak/Snap Firefox policy paths in this iteration.
 
 ## Implementation
-1. `scripts/build-xpi.sh`
-   - Deterministically package required extension files into `dist/contra.xpi`.
-2. `deploy/firefox/policies.json`
-   - Template with strict hardening and a placeholder install URL.
-3. `scripts/install-firefox-policy.sh`
-   - Build package, install root-owned XPI to `/opt/contra/contra.xpi`, write `/etc/firefox/policies/policies.json`, keep rollback backup in `/opt/contra/releases/`.
-4. `scripts/verify-firefox-policy.sh`
-   - Validate required files, ownership/permissions, and policy content expectations.
-5. `scripts/uninstall-firefox-policy.sh`
-   - Remove policy lock and revert managed XPI using latest backup when available.
-6. `scripts/dev-local-firefox.sh`
-   - Launch a dedicated local-dev Firefox profile with unsigned-addon preference for persistent local testing on Developer Edition/Nightly.
+1. `scripts/install-policy.sh`
+   - Self-sufficient Linux/macOS installer for strict Firefox enterprise policy lock.
+   - Applies Contra keys, backs up existing policy files, optionally seeds profiles, configures runtime guard/rescan.
+2. `scripts/uninstall-policy.sh`
+   - Self-sufficient Linux/macOS uninstaller.
+   - Removes Contra-managed policy keys while preserving unrelated policies, removes profile-seeded files/runtime artifacts by default.
+3. `scripts/archive/`
+   - Legacy and maintainer tooling moved here (build, verify, dev helpers, historical scripts, Windows scripts).
 
 ## Verification
 - `node --check background.js`
 - `node --check popup.js`
-- `bash -n scripts/build-xpi.sh`
-- `bash -n scripts/install-firefox-policy.sh`
-- `bash -n scripts/verify-firefox-policy.sh`
-- `bash -n scripts/dev-local-firefox.sh`
-- `scripts/build-xpi.sh` successful
-- `scripts/verify-firefox-policy.sh` run (expected warnings/failures before sudo install are acceptable in dev state)
+- `bash -n scripts/archive/linux-mac/build-xpi.sh`
+- `bash -n scripts/install-policy.sh`
+- `bash -n scripts/archive/linux-mac/verify-firefox-policy.sh`
+- `bash -n scripts/archive/linux-mac/dev-local-firefox.sh`
+- `scripts/archive/linux-mac/build-xpi.sh` successful
+- `scripts/archive/linux-mac/verify-firefox-policy.sh` run (expected warnings/failures before sudo install are acceptable in dev state)
 
 ## Addendum: Phrase Typing UX (Monkeytype-style)
 
@@ -227,8 +223,8 @@ Prepare the add-on for Mozilla Add-ons (AMO) publication with manifest and packa
 ### Verification
 - `node --check background.js`
 - `node --check popup.js`
-- `bash -n scripts/build-xpi.sh`
-- `scripts/build-xpi.sh`
+- `bash -n scripts/archive/linux-mac/build-xpi.sh`
+- `scripts/archive/linux-mac/build-xpi.sh`
 - Confirm `manifest.json` has `browser_specific_settings.gecko.data_collection_permissions.required` and no `gecko.update_url`.
 
 ## Addendum: Optional Adult Content Blocking Toggle
@@ -257,7 +253,7 @@ Add a dedicated settings checkbox that enables blocking against a very large bui
 ### Verification
 - `node --check popup.js`
 - `node --check background.js`
-- `bash -n scripts/generate-adult-domains.sh`
+- `bash -n scripts/archive/linux-mac/generate-adult-domains.sh`
 - Data sanity:
   - Confirm `data/adult-domains.txt` exists and contains a large normalized set.
   - Confirm enabling the checkbox includes adult-domain matching during blocking.
@@ -278,9 +274,9 @@ When Hardcore Mode policy is installed, enforce that Contra is allowed to run in
 - Firefox support for `private_browsing` in `ExtensionSettings` begins at Firefox `136` and ESR `128.8`.
 
 ### Verification
-- `bash -n scripts/hardcore-install.sh`
-- `bash -n scripts/verify-firefox-policy.sh`
-- PowerShell parse check for `scripts/hardcore-install.ps1`
+- `bash -n scripts/install-policy.sh`
+- `bash -n scripts/archive/linux-mac/verify-firefox-policy.sh`
+- PowerShell parse check for `scripts/archive/windows/hardcore-install.ps1`
 - Manual flow: run Hardcore install script as admin.
 - Manual flow: restart Firefox and check `about:policies` for `private_browsing: true` under Contra's entry.
 

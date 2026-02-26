@@ -76,10 +76,61 @@ function sanitizeList(value) {
   }
 
   const normalized = value
-    .map((item) => (typeof item === "string" ? item.trim().toLowerCase() : ""))
-    .filter((item) => item.length > 0);
+    .map((item) => normalizeUrlRule(item))
+    .filter((item) => typeof item === "string" && item.length > 0);
 
   return [...new Set(normalized)];
+}
+
+function isValidIpv4Hostname(hostname) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+    return false;
+  }
+
+  return hostname.split(".").every((segment) => {
+    const value = Number(segment);
+    return Number.isInteger(value) && value >= 0 && value <= 255;
+  });
+}
+
+function isValidUrlHostname(hostname) {
+  if (typeof hostname !== "string" || hostname.length === 0) {
+    return false;
+  }
+
+  if (hostname === "localhost") {
+    return true;
+  }
+
+  if (hostname.includes(":")) {
+    return true;
+  }
+
+  if (isValidIpv4Hostname(hostname)) {
+    return true;
+  }
+
+  return hostname.includes(".") && !hostname.startsWith(".") && !hostname.endsWith(".");
+}
+
+function normalizeUrlRule(rawValue) {
+  const trimmed = String(rawValue || "").trim().toLowerCase();
+  if (trimmed.length === 0 || /\s/.test(trimmed)) {
+    return null;
+  }
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed);
+  if (hasScheme && !/^https?:\/\//i.test(trimmed)) {
+    return null;
+  }
+
+  const candidate = hasScheme ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    return isValidUrlHostname(parsed.hostname.toLowerCase()) ? trimmed : null;
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeMode(value) {
@@ -378,14 +429,50 @@ function isSystemAllowedUrl(url) {
 }
 
 function urlMatchesRule(url, rule) {
-  const lowerUrl = url.toLowerCase();
-  if (lowerUrl.includes(rule)) {
-    return true;
+  if (typeof url !== "string") {
+    return false;
   }
 
+  const normalizedRule = normalizeUrlRule(rule);
+  if (!normalizedRule) {
+    return false;
+  }
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(normalizedRule);
+  const candidateRule = hasScheme
+    ? normalizedRule
+    : `https://${normalizedRule}`;
+
   try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return hostname === rule || hostname.endsWith(`.${rule}`);
+    const ruleUrl = new URL(candidateRule);
+    const targetUrl = new URL(url);
+    const ruleHostname = ruleUrl.hostname.toLowerCase();
+    const hostname = targetUrl.hostname.toLowerCase();
+    if (!(hostname === ruleHostname || hostname.endsWith(`.${ruleHostname}`))) {
+      return false;
+    }
+
+    if (ruleUrl.port && targetUrl.port !== ruleUrl.port) {
+      return false;
+    }
+
+    if (hasScheme && targetUrl.protocol !== ruleUrl.protocol) {
+      return false;
+    }
+
+    const rulePathname = ruleUrl.pathname || "/";
+    if (rulePathname !== "/") {
+      const targetPathname = targetUrl.pathname || "/";
+      if (targetPathname !== rulePathname && !targetPathname.startsWith(`${rulePathname}/`)) {
+        return false;
+      }
+    }
+
+    if (ruleUrl.search && targetUrl.search !== ruleUrl.search) {
+      return false;
+    }
+
+    return true;
   } catch {
     return false;
   }
@@ -416,7 +503,7 @@ function isViolation(url) {
 }
 
 function shouldCloseForBlocking(url) {
-  if (!isBlocking && isAdultBlockingEnabled()) {
+  if (!isBlocking && adultContentForcedByPolicy) {
     return matchesAdultDomainRule(url);
   }
 
@@ -488,7 +575,7 @@ function isTemporarilyDisabledForTest() {
 }
 
 function shouldEnforceBlocking() {
-  if (isAdultBlockingEnabled()) {
+  if (adultContentForcedByPolicy) {
     return true;
   }
 
@@ -1087,6 +1174,10 @@ browser.tabs.onCreated.addListener((tab) => {
 });
 
 browser.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (!details || details.frameId !== 0) {
+    return;
+  }
+
   void aggressivelyCloseTamperTab(details.tabId, details.url, details);
   void checkAndCloseTab(details.tabId, details.url, details);
 });

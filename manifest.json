@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "contra.",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Go deep, control your life.",
   "permissions": [
     "tabs",

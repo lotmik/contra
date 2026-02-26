@@ -104,8 +104,8 @@ function sanitizeList(value) {
   }
 
   const normalized = value
-    .map((item) => (typeof item === "string" ? item.trim().toLowerCase() : ""))
-    .filter((item) => item.length > 0);
+    .map((item) => normalizeUrlRule(item))
+    .filter((item) => typeof item === "string" && item.length > 0);
 
   return [...new Set(normalized)];
 }

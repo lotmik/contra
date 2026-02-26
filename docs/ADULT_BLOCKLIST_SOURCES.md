@@ -15,7 +15,7 @@ This project's `data/adult-domains.txt` is generated from these pinned upstream 
 Generation command:
 
 ```bash
-scripts/generate-adult-domains.sh
+scripts/archive/linux-mac/generate-adult-domains.sh
 ```
 
 Runtime refresh behavior:
@@ -26,7 +26,3 @@ Runtime refresh behavior:
 Enterprise forced mode:
 - Firefox policy key: `policies.3rdparty.Extensions["contra@ltdmk"].forceAdultBlock: true`
 - Effect: adult blocking is always enforced (even with the normal block toggle off) and the popup adult toggle is hidden.
-
-Latest generation in this workspace (2026-02-20):
-- Unique normalized domains: `763990`
-- File size: `15792394` bytes
