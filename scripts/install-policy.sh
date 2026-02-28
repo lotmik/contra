@@ -9,10 +9,10 @@ set -euo pipefail
 # - Prints concise progress + final policy summary; does not install Firefox itself.
 #
 # Defaults:
-# - Policy install URL uses the published AMO XPI.
+# - Policy install URL uses the AMO latest endpoint for the published XPI.
 # - Profile seed source auto-downloads from that URL unless --source-xpi is provided.
 DEFAULT_ADDON_ID="contra@ltdmk"
-DEFAULT_INSTALL_URL="https://addons.mozilla.org/firefox/downloads/file/4706126/contra_blocker-0.4.1.xpi"
+DEFAULT_INSTALL_URL="https://addons.mozilla.org/firefox/downloads/latest/contra-blocker/latest.xpi"
 addon_id="${DEFAULT_ADDON_ID}"
 addon_id_explicit=false
 install_url=""
@@ -39,7 +39,7 @@ Install Firefox enterprise policy so Contra cannot be removed/disabled.
 Options:
   --addon-id ID            Add-on ID to lock (default: contra@ltdmk)
   --source-xpi PATH        Optional local XPI path for profile seeding override
-  --install-url URL        Install URL used in policy (fixed to the published AMO URL)
+  --install-url URL        Install URL used in policy (fixed to the published AMO latest endpoint)
   --on-conflict MODE       Existing policies.json behavior: merge|overwrite|abort (default: merge)
   --firefox-path PATH      Optional Firefox app/bin/install path to include (default: auto-detect)
   --adult                  Force-enable adult blocking via enterprise policy (hides toggle in UI)
@@ -979,7 +979,7 @@ if [[ -z "${install_url}" ]]; then
   install_url="$(build_default_install_url "${addon_id}")"
 fi
 if [[ "${install_url}" != "${DEFAULT_INSTALL_URL}" ]]; then
-  echo "--install-url is fixed to the published URL: ${DEFAULT_INSTALL_URL}" >&2
+  echo "--install-url is fixed to the published AMO latest URL: ${DEFAULT_INSTALL_URL}" >&2
   exit 1
 fi
 

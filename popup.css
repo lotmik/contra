@@ -335,6 +335,15 @@ textarea {
   outline-offset: 1px;
 }
 
+#timer-end-time.is-invalid {
+  border-color: #ca4754;
+}
+
+#timer-end-time.is-invalid:focus-visible {
+  outline: 2px solid #ca4754;
+  outline-offset: 1px;
+}
+
 .field-error {
   margin: 0;
   min-height: 14px;

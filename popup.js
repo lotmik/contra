@@ -4,6 +4,8 @@ const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that my inte
 const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
+const TIMER_END_TIME_WARNING_MINUTES = 4 * 60;
+const TIMER_END_TIME_WARNING_TEXT = "Timer exceeds 4 hours. Proceed if desired";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
 const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
@@ -83,6 +85,7 @@ const elements = {
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
+  timerEndTimeError: document.getElementById("timer-end-time-error"),
   timerPresets: document.getElementById("timer-presets"),
   unlockPhraseSettingDropdown: document.getElementById("unlock-phrase-setting-dropdown"),
   unlockPhraseSettingSummary: document.getElementById("unlock-phrase-setting-summary"),
@@ -416,6 +419,50 @@ function updatePowerToggleAvailability() {
   }
 }
 
+function getTimerEndTimeWarning(timeOfDay = elements.timerEndTimeInput.value) {
+  const normalized = String(timeOfDay || "").trim();
+  if (!isValidTimeOfDayString(normalized)) {
+    return "";
+  }
+
+  const minutesUntil = getMinutesUntilEndTime(normalized);
+  if (minutesUntil > TIMER_END_TIME_WARNING_MINUTES) {
+    return TIMER_END_TIME_WARNING_TEXT;
+  }
+
+  return "";
+}
+
+function setTimerEndTimeWarning(message = "") {
+  const text = String(message || "").trim();
+  const hasWarning = text.length > 0;
+
+  elements.timerEndTimeInput.classList.toggle("is-invalid", hasWarning);
+  if (hasWarning) {
+    elements.timerEndTimeInput.setAttribute("aria-invalid", "true");
+  } else {
+    elements.timerEndTimeInput.removeAttribute("aria-invalid");
+  }
+
+  if (!elements.timerEndTimeError) {
+    return;
+  }
+
+  elements.timerEndTimeError.textContent = text;
+  elements.timerEndTimeError.hidden = !hasWarning;
+}
+
+function refreshTimerEndTimeWarning() {
+  const shouldEvaluate =
+    state.unlockMode === "timer" && state.timerSelectionMode === TIMER_SELECTION_MODE_MANUAL_END_TIME;
+  if (!shouldEvaluate) {
+    setTimerEndTimeWarning("");
+    return;
+  }
+
+  setTimerEndTimeWarning(getTimerEndTimeWarning(elements.timerEndTimeInput.value));
+}
+
 function splitUrlListLines(text) {
   return String(text || "").split(/\r?\n/);
 }
@@ -700,6 +747,7 @@ function syncTimerControlsFromState() {
 
   updatePresetButtons();
   updateTimerEndTimeInputFromState();
+  refreshTimerEndTimeWarning();
   reconcilePresetEndTimeTicker();
 }
 
@@ -737,6 +785,7 @@ function updateTimerSettingsVisibility() {
   const showTimerSettings = state.unlockMode === "timer";
   elements.timerSettingsGroup.hidden = !showTimerSettings;
   elements.timerEndTimeInput.disabled = !showTimerSettings;
+  refreshTimerEndTimeWarning();
 
   if (elements.unlockPhraseSettingDropdown) {
     elements.unlockPhraseSettingDropdown.open = state.unlockMode === "phrase";
@@ -1434,6 +1483,7 @@ function handleTimerPresetDoubleClick(event) {
 function handleTimerEndTimeInput() {
   const rawValue = String(elements.timerEndTimeInput.value || "").trim();
   if (!isValidTimeOfDayString(rawValue)) {
+    setTimerEndTimeWarning("");
     return;
   }
 

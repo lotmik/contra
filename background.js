@@ -590,6 +590,26 @@ function canStopBlocking() {
   return timerExpired;
 }
 
+function shouldShowTimerExpiredBadge() {
+  return isBlocking && unlockMode === "timer" && timerExpired;
+}
+
+async function updateActionBadge() {
+  if (!browser?.action?.setBadgeText) {
+    return;
+  }
+
+  try {
+    const showTimerExpiredBadge = shouldShowTimerExpiredBadge();
+    await browser.action.setBadgeText({ text: showTimerExpiredBadge ? "•" : "" });
+    if (showTimerExpiredBadge && browser?.action?.setBadgeBackgroundColor) {
+      await browser.action.setBadgeBackgroundColor({ color: "#ff3b30" });
+    }
+  } catch {
+    // Ignore unsupported action badge APIs so blocking logic remains unaffected.
+  }
+}
+
 async function removeTabSafely(tabId) {
   try {
     await browser.tabs.remove(tabId);
@@ -796,6 +816,7 @@ async function persistState() {
     testDisableUntil,
     recoverableClosedTabs
   });
+  await updateActionBadge();
 }
 
 function applySettingsPayload(payload = {}) {
@@ -1302,6 +1323,7 @@ void loadState()
     }
 
     await reconcileTimers();
+    await updateActionBadge();
     reconcileAggressiveTamperMonitor();
     if (shouldEnforceBlocking()) {
       await aggressivelyCloseTamperTabsByQuery();
