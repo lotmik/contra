@@ -11,13 +11,14 @@ set -euo pipefail
 # Defaults:
 # - Policy install URL uses the AMO latest endpoint for the published XPI.
 # - Profile seed source auto-downloads from that URL unless --source-xpi is provided.
+# Base constants and mutable runtime state.
+# The script intentionally keeps all tunables near the top so operational behavior
+# is easy to audit before execution.
 DEFAULT_ADDON_ID="contra@ltdmk"
 DEFAULT_INSTALL_URL="https://addons.mozilla.org/firefox/downloads/latest/contra-blocker/latest.xpi"
 addon_id="${DEFAULT_ADDON_ID}"
-addon_id_explicit=false
 install_url=""
 source_xpi_path=""
-source_xpi_explicit=false
 on_conflict="merge"
 on_conflict_explicit=false
 yes_mode=false
@@ -26,7 +27,6 @@ policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 skip_admin_check="${CONTRA_SKIP_ADMIN_CHECK:-0}"
 force_adult_block=true
 force_adult_block_explicit=false
-guard_mode="enforce"
 profile_seed_mode="on"
 
 # Prints CLI usage and available flags.
@@ -44,7 +44,6 @@ Options:
   --firefox-path PATH      Optional Firefox app/bin/install path to include (default: auto-detect)
   --adult                  Force-enable adult blocking via enterprise policy (hides toggle in UI)
   --no-adult               Do not set force adult policy flag
-  --guard-mode MODE        Runtime guard mode: off|warn|enforce (accepted, testing no-op)
   --profile-seed MODE      Profile seeding mode: on|off (default: on)
   --yes, -y                Non-interactive mode (use selected/default options)
   -h, --help               Show help
@@ -52,6 +51,11 @@ USAGE
 }
 
 # Prompts with a default-yes confirmation in interactive mode.
+# Input:
+# - $1: prompt text displayed to the operator.
+# Behavior:
+# - Empty input is treated as "yes" to keep the install flow quick.
+# - Returns 0 for yes and 1 for no.
 ask_yes_no_default_yes() {
   local prompt="$1"
   local answer=""
@@ -72,13 +76,13 @@ ask_yes_no_default_yes() {
   done
 }
 
-# Builds the default install URL used in policy.
-build_default_install_url() {
-  local _target_addon_id="$1"
-  printf '%s' "${DEFAULT_INSTALL_URL}"
-}
-
 # Resolves profile-seed XPI path, downloading from install URL when needed.
+# Input:
+# - $1: temporary download destination used when source XPI is not explicitly set.
+# Behavior:
+# - Honors `profile_seed_mode`; if seeding is disabled, no work is done.
+# - Validates explicit local source if provided.
+# - Otherwise downloads from install URL and points `source_xpi_path` at downloaded file.
 resolve_source_xpi_for_seeding() {
   local download_target="$1"
   local fetch_log="${download_target}.fetch.log"
@@ -124,6 +128,10 @@ resolve_source_xpi_for_seeding() {
 }
 
 # Escapes shell strings for safe JSON interpolation.
+# Input:
+# - $1: raw string to escape for JSON string literals.
+# Output:
+# - Escaped value written to stdout.
 json_escape() {
   local raw="$1"
   raw="${raw//\\/\\\\}"
@@ -135,11 +143,17 @@ json_escape() {
 }
 
 # Checks whether Perl JSON::PP is available for JSON edits.
+# Return:
+# - 0 when perl + JSON::PP are available, non-zero otherwise.
 is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
 # Validates that a policies.json file is a JSON object.
+# Input:
+# - $1: path to candidate policies.json file.
+# Return:
+# - 0 when valid JSON object, non-zero otherwise.
 is_policy_json_valid() {
   local policy_file="$1"
   perl -MJSON::PP -e '
@@ -156,6 +170,8 @@ exit(($@ || ref($data) ne "HASH") ? 1 : 0);
 }
 
 # Asks user how to handle an existing policies.json file.
+# Return:
+# - Selected mode printed to stdout: merge / overwrite / abort.
 choose_conflict_mode_interactive() {
   local selected=""
   while true; do
@@ -182,6 +198,8 @@ choose_conflict_mode_interactive() {
 }
 
 # Asks for overwrite or abort when merge support is unavailable.
+# Return:
+# - Selected mode printed to stdout: overwrite / abort.
 choose_conflict_mode_without_merge() {
   local selected=""
   while true; do
@@ -204,6 +222,10 @@ choose_conflict_mode_without_merge() {
 }
 
 # Emits common Linux Firefox policies.json targets.
+# Output:
+# - One candidate path per line.
+# Notes:
+# - Includes both well-known static paths and discovered wildcard roots.
 contra_emit_known_linux_policy_files() {
   printf '%s\n' \
     '/etc/firefox/policies/policies.json' \
@@ -235,6 +257,8 @@ contra_emit_known_linux_policy_files() {
 }
 
 # Emits common macOS Firefox app bundle paths.
+# Output:
+# - Candidate `.app` directories, one per line.
 contra_emit_known_macos_apps() {
   printf '%s\n' \
     '/Applications/Firefox.app' \
@@ -250,6 +274,10 @@ contra_emit_known_macos_apps() {
 }
 
 # Normalizes Linux inputs into a policies.json file path.
+# Input:
+# - $1: user-provided Firefox binary/install/policy path.
+# Output:
+# - Normalized policies.json path on success.
 contra_normalize_linux_policy_file() {
   local input_path="$1"
 
@@ -287,6 +315,10 @@ contra_normalize_linux_policy_file() {
 }
 
 # Normalizes macOS inputs into a policies.json file path.
+# Input:
+# - $1: user-provided Firefox `.app` or nested bundle path.
+# Output:
+# - Normalized policies.json path on success.
 contra_normalize_macos_policy_file() {
   local input_path="$1"
   local app_path=""
@@ -320,6 +352,12 @@ contra_normalize_macos_policy_file() {
 }
 
 # Collects unique policy-file targets for the current OS.
+# Input:
+# - $1: OS name (`uname -s`).
+# - $2: optional Firefox path override.
+# - $3: optional explicit policy file override.
+# Output:
+# - Deduplicated candidate policy paths, one per line.
 contra_collect_policy_files() {
   local os_name="$1"
   local firefox_path_override="${2:-}"
@@ -394,6 +432,8 @@ contra_collect_policy_files() {
 }
 
 # Scans home directories for Firefox profile roots.
+# Output:
+# - Existing profile-root directories from common home locations.
 contra_emit_profile_roots_from_homes() {
   local home_dir
   for home_dir in /home/* /root; do
@@ -404,6 +444,10 @@ contra_emit_profile_roots_from_homes() {
 }
 
 # Builds candidate Firefox profile roots in priority order.
+# Output:
+# - Candidate roots in preferred lookup order.
+# Notes:
+# - Honors `CONTRA_FIREFOX_PROFILE_ROOTS` first, then sudo/current/home scans.
 contra_emit_profile_roots() {
   local sudo_home=""
   local sudo_user_home=""
@@ -435,11 +479,17 @@ contra_emit_profile_roots() {
 }
 
 # Returns unique existing profile-root directories.
+# Output:
+# - Deduplicated roots that currently exist.
 contra_collect_profile_roots() {
   contra_emit_profile_roots | awk 'NF && !seen[$0]++ && system("[ -d \"" $0 "\" ]") == 0'
 }
 
 # Reads profiles.ini and emits resolved profile paths.
+# Input:
+# - $1: profile root directory containing profiles.ini.
+# Output:
+# - Resolved profile directories, one per line.
 contra_emit_profiles_from_profiles_ini() {
   local profile_root="$1"
   local ini_file="${profile_root}/profiles.ini"
@@ -465,6 +515,10 @@ contra_emit_profiles_from_profiles_ini() {
 }
 
 # Finds profile dirs by scanning profile-root contents.
+# Input:
+# - $1: profile root directory.
+# Output:
+# - Candidate profile directories that look like real profiles.
 contra_emit_profiles_from_root_scan() {
   local profile_root="$1"
   local profile_dir=""
@@ -485,6 +539,8 @@ contra_emit_profiles_from_root_scan() {
 }
 
 # Collects profile directories from all discovered roots.
+# Output:
+# - Potential Firefox profile directories discovered from all roots.
 contra_collect_firefox_profiles() {
   local profile_root=""
   while IFS= read -r profile_root; do
@@ -495,11 +551,18 @@ contra_collect_firefox_profiles() {
 }
 
 # Returns unique existing Firefox profile directories.
+# Output:
+# - Deduplicated profile directories that exist at execution time.
 contra_collect_firefox_profiles_unique() {
   contra_collect_firefox_profiles | awk 'NF && !seen[$0]++ && system("[ -d \"" $0 "\" ]") == 0'
 }
 
 # Builds managed extension XPI path for a profile.
+# Input:
+# - $1: profile directory.
+# - $2: addon id.
+# Output:
+# - Full path to profile-managed XPI file.
 contra_profile_extension_path() {
   local profile_dir="$1"
   local addon_id_local="$2"
@@ -507,12 +570,22 @@ contra_profile_extension_path() {
 }
 
 # Returns numeric owner:group for ownership-preserving writes.
+# Input:
+# - $1: filesystem path whose ownership should be mirrored.
+# Output:
+# - `uid:gid` on stdout when available.
 contra_owner_group_for_path() {
   local target_path="$1"
   stat -c '%u:%g' "${target_path}" 2>/dev/null || true
 }
 
 # Seeds or updates managed XPI in one Firefox profile.
+# Input:
+# - $1: profile dir, $2: source xpi, $3: addon id.
+# Output:
+# - status tuple: `status|profile_dir|target_file`.
+# Notes:
+# - Preserves profile ownership for created/updated files when possible.
 contra_seed_profile_xpi() {
   local profile_dir="$1"
   local source_xpi="$2"
@@ -550,6 +623,11 @@ contra_seed_profile_xpi() {
 }
 
 # Renders desired strict Contra enterprise policy JSON.
+# Input:
+# - $1: destination JSON path.
+# Behavior:
+# - Writes full managed policy object; includes 3rdparty block only when
+#   force-adult mode is enabled.
 render_target_policy_json() {
   local output_file="$1"
   local addon_id_escaped install_url_escaped
@@ -614,6 +692,11 @@ EOF_JSON
 }
 
 # Merges Contra policy keys into existing policies.json.
+# Input:
+# - $1: existing policy file, $2: merged output file, $3: force-adult flag,
+#   $4: force-adult-explicit flag.
+# Behavior:
+# - Preserves unrelated existing keys while enforcing Contra-managed keys.
 merge_policy_json_with_existing() {
   local existing_policy_file="$1"
   local merged_output_file="$2"
@@ -697,6 +780,10 @@ close $out_fh or die "Failed to finalize merged policy output.\n";
 }
 
 # Verifies required policy keys after write operation.
+# Input:
+# - $1: policy file path, $2: whether force-adult key must exist.
+# Return:
+# - 0 only when resulting policies meet strict expected contract.
 verify_policy_install() {
   local policy_file="$1"
   local expect_force_adult_flag="$2"
@@ -749,20 +836,11 @@ if ($expect_force_adult_flag eq "true") {
 ' "${policy_file}" "${addon_id}" "${install_url}" "${expect_force_adult_flag}" >/dev/null 2>&1
 }
 
-# Validates and normalizes guard mode option.
-normalize_guard_mode() {
-  local raw_mode="${1,,}"
-  case "${raw_mode}" in
-    off|warn|enforce)
-      printf '%s' "${raw_mode}"
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 # Validates and normalizes profile-seed mode option.
+# Input:
+# - $1: raw mode value.
+# Output:
+# - Normalized mode (`on`/`off`) to stdout.
 normalize_profile_seed_mode() {
   local raw_mode="${1,,}"
   case "${raw_mode}" in
@@ -775,19 +853,12 @@ normalize_profile_seed_mode() {
   esac
 }
 
-# Keeps install flow stable while runtime guard is disabled for testing.
-setup_runtime_services() {
-  return 0
-}
-
-if [[ $# -eq 0 ]]; then
-  :
-fi
-
 # Tracks whether an in-place progress bar is currently displayed.
 progress_line_active=false
 
 # Renders an in-place progress bar on a single terminal line.
+# Input:
+# - $1 current progress value, $2 total, $3 label text.
 render_progress_bar() {
   local current="$1"
   local total="$2"
@@ -813,6 +884,8 @@ render_progress_bar() {
 }
 
 # Finishes the in-place progress line with a trailing newline.
+# Behavior:
+# - Adds a newline only when a progress line is currently active.
 finish_progress_bar_line() {
   if [[ "${progress_line_active}" == true ]]; then
     printf '\n'
@@ -820,7 +893,20 @@ finish_progress_bar_line() {
   fi
 }
 
+# Renders policy-apply progress with the script's fixed percentage window.
+# Input:
+# - $1 current policy index, $2 total policies.
+render_policy_apply_progress() {
+  local index="$1"
+  local total="$2"
+  local progress_value=$((12 + (index * 53 / total)))
+  render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Applying policies (${index}/${total})"
+}
+
 # Normalizes and adds a single unique value to a newline-separated set variable.
+# Input:
+# - $1: variable name containing newline-delimited values.
+# - $2: value to normalize and insert when missing.
 add_unique_value() {
   local var_name="$1"
   local value="$2"
@@ -841,6 +927,10 @@ add_unique_value() {
 }
 
 # Converts a newline-separated unique set variable to a sorted CSV line.
+# Input:
+# - $1: variable name containing newline-delimited set values.
+# Output:
+# - Sorted CSV (or `none` when empty).
 unique_values_to_csv() {
   local var_name="$1"
   local current="${!var_name:-}"
@@ -861,26 +951,26 @@ unique_values_to_csv() {
   '
 }
 
+# Parse CLI arguments and update runtime state.
+# This section intentionally validates known flags and rejects unknown input.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --addon-id)
       addon_id="${2:-}"
-      addon_id_explicit=true
       shift 2
       ;;
     --addon-id=*)
       addon_id="${1#*=}"
-      addon_id_explicit=true
       shift
       ;;
     --source-xpi)
       source_xpi_path="${2:-}"
-      source_xpi_explicit=true
+      [[ -n "${source_xpi_path}" ]] || { echo "--source-xpi cannot be empty when provided." >&2; exit 1; }
       shift 2
       ;;
     --source-xpi=*)
       source_xpi_path="${1#*=}"
-      source_xpi_explicit=true
+      [[ -n "${source_xpi_path}" ]] || { echo "--source-xpi cannot be empty when provided." >&2; exit 1; }
       shift
       ;;
     --install-url)
@@ -923,14 +1013,6 @@ while [[ $# -gt 0 ]]; do
       force_adult_block_explicit=true
       shift
       ;;
-    --guard-mode)
-      guard_mode="${2:-}"
-      shift 2
-      ;;
-    --guard-mode=*)
-      guard_mode="${1#*=}"
-      shift
-      ;;
     --profile-seed)
       profile_seed_mode="${2:-}"
       shift 2
@@ -951,21 +1033,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Validate required arguments and normalize simple mode fields.
 [[ -z "${addon_id}" ]] && { echo "--addon-id cannot be empty." >&2; exit 1; }
-if [[ "${source_xpi_explicit}" == true && -z "${source_xpi_path}" ]]; then
-  echo "--source-xpi cannot be empty when provided." >&2
-  exit 1
-fi
 
-if ! guard_mode="$(normalize_guard_mode "${guard_mode}")"; then
-  echo "Invalid --guard-mode value: ${guard_mode}. Use off|warn|enforce." >&2
-  exit 1
-fi
 if ! profile_seed_mode="$(normalize_profile_seed_mode "${profile_seed_mode}")"; then
   echo "Invalid --profile-seed value: ${profile_seed_mode}. Use on|off." >&2
   exit 1
 fi
 
+# Normalize conflict mode and reject unsupported values early.
 on_conflict="${on_conflict,,}"
 case "${on_conflict}" in
   merge|overwrite|abort) ;;
@@ -975,22 +1051,25 @@ case "${on_conflict}" in
     ;;
 esac
 
+# Enforce fixed install URL policy for safe, predictable deployments.
 if [[ -z "${install_url}" ]]; then
-  install_url="$(build_default_install_url "${addon_id}")"
+  install_url="${DEFAULT_INSTALL_URL}"
 fi
 if [[ "${install_url}" != "${DEFAULT_INSTALL_URL}" ]]; then
   echo "--install-url is fixed to the published AMO latest URL: ${DEFAULT_INSTALL_URL}" >&2
   exit 1
 fi
 
+# Optional interactive confirmation for force-adult mode in operator-driven runs.
 if [[ "${force_adult_block_explicit}" == false && "${yes_mode}" == false ]]; then
-  if ask_yes_no_default_yes "Enable forced adult blocking"; then
+  if ask_yes_no_default_yes "Enable forced adult blocking (closes every adult website before it loads)"; then
     force_adult_block=true
   else
     force_adult_block=false
   fi
 fi
 
+# Stage 1: preflight checks (privilege + environment sanity).
 TOTAL_PROGRESS=100
 render_progress_bar 3 "${TOTAL_PROGRESS}" "Preflight checks"
 if [[ "${skip_admin_check}" != "1" && "${EUID}" -ne 0 ]]; then
@@ -999,6 +1078,7 @@ if [[ "${skip_admin_check}" != "1" && "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+# Stage 2: decide operating mode for merge fallback when JSON merge engine is unavailable.
 os_name="$(uname -s)"
 if [[ "${on_conflict}" == "merge" ]] && ! is_perl_jsonpp_available; then
   if [[ "${yes_mode}" == true ]]; then
@@ -1010,6 +1090,7 @@ if [[ "${on_conflict}" == "merge" ]] && ! is_perl_jsonpp_available; then
 fi
 effective_conflict_mode="${on_conflict}"
 
+# Stage 3: discover target policy files.
 render_progress_bar 10 "${TOTAL_PROGRESS}" "Finding policy files"
 policy_files=()
 while IFS= read -r policy_candidate; do
@@ -1021,9 +1102,11 @@ if [[ ${#policy_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Stage 4: create temporary workspace and cleanup trap.
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
 
+# Stage 5: resolve profile seed source only when seeding is enabled.
 if [[ "${profile_seed_mode}" == "on" ]]; then
   render_progress_bar 11 "${TOTAL_PROGRESS}" "Preparing profile seed source"
   if ! resolve_source_xpi_for_seeding "${work_dir}/contra-seed-source.xpi"; then
@@ -1032,9 +1115,11 @@ if [[ "${profile_seed_mode}" == "on" ]]; then
   fi
 fi
 
+# Stage 6: render desired managed policy payload once and reuse for all targets.
 target_policy_json="${work_dir}/contra-policy-target.json"
 render_target_policy_json "${target_policy_json}"
 
+# Stage 7: initialize counters and summary sets for final report output.
 prompted_conflict_choice=false
 policy_index=0
 failed_targets=0
@@ -1042,7 +1127,6 @@ updated_targets=0
 created_targets=0
 files_changed=""
 added_policies_set=""
-removed_policies_set=""
 left_policies_set=""
 install_policy_summary_items=(
   "DisableSafeMode"
@@ -1054,46 +1138,51 @@ install_policy_summary_items=(
 if [[ "${force_adult_block}" == true ]]; then
   install_policy_summary_items+=("3rdparty.Extensions[${addon_id}].forceAdultBlock")
 fi
+# Pre-fill summary sets with the policy keys this run is designed to enforce.
 for policy_item in "${install_policy_summary_items[@]}"; do
   add_unique_value added_policies_set "${policy_item}"
   add_unique_value left_policies_set "${policy_item}"
 done
 
+# Stage 8: apply policy updates across all discovered targets.
 policy_total="${#policy_files[@]}"
 render_progress_bar 12 "${TOTAL_PROGRESS}" "Applying policies (0/${policy_total})"
 for policy_file in "${policy_files[@]}"; do
+  # Build per-target temporary filenames and execution context.
   policy_index=$((policy_index + 1))
   policy_dir="$(dirname "${policy_file}")"
   final_policy_json="${work_dir}/contra-policy-final-${policy_index}.json"
-  merge_error_file="${work_dir}/merge-error-${policy_index}.log"
   file_existed=false
 
+  # Existing policy file path: backup first, then merge/overwrite behavior.
   if [[ -f "${policy_file}" ]]; then
+    # Always create a timestamped backup before mutating an existing file.
     file_existed=true
     backup_dir="${policy_dir}/contra-policy-backups"
     timestamp="$(date -u +%Y%m%d%H%M%S)"
     backup_path="${backup_dir}/policies-${timestamp}-${policy_index}.json"
     if ! install -d -m 0755 "${backup_dir}" || ! cp "${policy_file}" "${backup_path}" || ! chmod 0644 "${backup_path}"; then
       failed_targets=$((failed_targets + 1))
-      progress_value=$((12 + (policy_index * 53 / policy_total)))
-      render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Applying policies (${policy_index}/${policy_total})"
+      render_policy_apply_progress "${policy_index}" "${policy_total}"
       continue
     fi
 
+    # Invalid JSON cannot be merged safely; reset target using strict template.
     if ! is_policy_json_valid "${policy_file}"; then
       if ! rm -f "${policy_file}"; then
         failed_targets=$((failed_targets + 1))
-        progress_value=$((12 + (policy_index * 53 / policy_total)))
-        render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Applying policies (${policy_index}/${policy_total})"
+        render_policy_apply_progress "${policy_index}" "${policy_total}"
         continue
       fi
       cp "${target_policy_json}" "${final_policy_json}"
       file_existed=false
     else
+      # Interactive conflict prompt is shown once unless explicitly configured.
       if [[ "${on_conflict_explicit}" == false && "${yes_mode}" == false && "${prompted_conflict_choice}" == false ]]; then
         effective_conflict_mode="$(choose_conflict_mode_interactive)"
         prompted_conflict_choice=true
       fi
+      # Apply selected conflict policy: abort, overwrite, or merge-with-fallback.
       case "${effective_conflict_mode}" in
         abort)
           finish_progress_bar_line
@@ -1104,7 +1193,7 @@ for policy_file in "${policy_files[@]}"; do
           cp "${target_policy_json}" "${final_policy_json}"
           ;;
         merge)
-          if merge_policy_json_with_existing "${policy_file}" "${final_policy_json}" "${force_adult_block}" "${force_adult_block_explicit}" 2>"${merge_error_file}"; then
+          if merge_policy_json_with_existing "${policy_file}" "${final_policy_json}" "${force_adult_block}" "${force_adult_block_explicit}" >/dev/null 2>&1; then
             :
           else
             cp "${target_policy_json}" "${final_policy_json}"
@@ -1112,10 +1201,12 @@ for policy_file in "${policy_files[@]}"; do
           ;;
       esac
     fi
+  # New file path: write strict template directly.
   else
     cp "${target_policy_json}" "${final_policy_json}"
   fi
 
+  # Persist final JSON and verify managed policy contract after write.
   if ! install -d -m 0755 "${policy_dir}" || ! install -m 0644 "${final_policy_json}" "${policy_file}" || ! verify_policy_install "${policy_file}" "${force_adult_block}" >/dev/null 2>&1; then
     failed_targets=$((failed_targets + 1))
   else
@@ -1127,16 +1218,18 @@ for policy_file in "${policy_files[@]}"; do
     fi
   fi
 
-  progress_value=$((12 + (policy_index * 53 / policy_total)))
-  render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Applying policies (${policy_index}/${policy_total})"
+  # Move progress bar through the policy-application range.
+  render_policy_apply_progress "${policy_index}" "${policy_total}"
 done
 
+# Stage 9: optionally seed profile XPI files to pre-populate existing profiles.
 render_progress_bar 65 "${TOTAL_PROGRESS}" "Policy update complete"
 profile_seeded=0
 profile_updated=0
 profile_up_to_date=0
 profile_failed=0
 if [[ "${profile_seed_mode}" == "on" ]]; then
+  # Gather profile directories once to compute deterministic progress increments.
   profile_dirs=()
   while IFS= read -r profile_dir; do
     [[ -n "${profile_dir}" ]] && profile_dirs+=("${profile_dir}")
@@ -1146,6 +1239,7 @@ if [[ "${profile_seed_mode}" == "on" ]]; then
   if [[ "${profile_total}" -gt 0 ]]; then
     profile_index=0
     render_progress_bar 66 "${TOTAL_PROGRESS}" "Seeding profiles (0/${profile_total})"
+    # Seed each profile and bucket results for summary/failure accounting.
     for profile_dir in "${profile_dirs[@]}"; do
       profile_index=$((profile_index + 1))
       seed_result="$(contra_seed_profile_xpi "${profile_dir}" "${source_xpi_path}" "${addon_id}")" || true
@@ -1166,13 +1260,11 @@ else
   render_progress_bar 85 "${TOTAL_PROGRESS}" "Profile seeding skipped"
 fi
 
-render_progress_bar 92 "${TOTAL_PROGRESS}" "Runtime guard disabled (testing)"
-setup_runtime_services
-
+# Stage 10: print final summaries and return success/failure status.
 render_progress_bar 100 "${TOTAL_PROGRESS}" "Complete"
 finish_progress_bar_line
 echo "Policies added by this run: $(unique_values_to_csv added_policies_set)"
-echo "Policies removed by this run: $(unique_values_to_csv removed_policies_set)"
+echo "Policies removed by this run: none"
 echo "Policies left after this run: $(unique_values_to_csv left_policies_set)"
 echo "Files changed: $(unique_values_to_csv files_changed)"
 

@@ -4,18 +4,20 @@ set -euo pipefail
 # Script Summary:
 # - Detects Firefox policy locations (Linux/macOS), then creates backups before edits.
 # - Removes only Contra-managed enterprise policy keys while preserving unrelated keys.
-# - Optionally removes profile-seeded XPI files and legacy runtime guard artifacts.
+# - Optionally removes profile-seeded XPI files.
 # - Prints concise progress + final deduplicated policy summary.
+# Base constants and mutable runtime state.
+# Keeping these declarations centralized makes runtime behavior easy to audit.
 DEFAULT_ADDON_ID="contra@ltdmk"
 addon_id="${DEFAULT_ADDON_ID}"
-yes_mode=false
 firefox_path=""
 policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 skip_admin_check="${CONTRA_SKIP_ADMIN_CHECK:-0}"
-remove_guard=true
 remove_profile_seed=true
 
 # Prints CLI usage and available flags.
+# Behavior:
+# - Emits full command synopsis and option list to stdout.
 usage() {
   cat <<'USAGE'
 Usage: scripts/uninstall-policy.sh [options]
@@ -25,8 +27,6 @@ Remove Contra Firefox enterprise policy lock while preserving unrelated policies
 Options:
   --addon-id ID            Add-on ID to unlock (default: contra@ltdmk)
   --firefox-path PATH      Optional Firefox app/bin/install path to include (default: auto-detect)
-  --remove-guard           Remove legacy runtime guard artifacts (default: true)
-  --keep-guard             Skip runtime guard artifact cleanup
   --remove-profile-seed    Remove profile-seeded extension files (default: true)
   --keep-profile-seed      Keep profile-seeded extension files
   --yes, -y                Non-interactive mode (currently informational)
@@ -35,6 +35,8 @@ USAGE
 }
 
 # Emits common Linux Firefox policies.json targets.
+# Output:
+# - Candidate policy file paths (one per line).
 contra_emit_known_linux_policy_files() {
   printf '%s\n' \
     '/etc/firefox/policies/policies.json' \
@@ -61,6 +63,8 @@ contra_emit_known_linux_policy_files() {
 }
 
 # Emits common macOS Firefox app bundle paths.
+# Output:
+# - Candidate app bundle roots (one per line).
 contra_emit_known_macos_apps() {
   printf '%s\n' \
     '/Applications/Firefox.app' \
@@ -76,6 +80,10 @@ contra_emit_known_macos_apps() {
 }
 
 # Normalizes Linux inputs into a policies.json file path.
+# Input:
+# - $1: user-provided Linux path to firefox binary/install/policy.
+# Output:
+# - Normalized policies.json path on success.
 contra_normalize_linux_policy_file() {
   local input_path="$1"
   case "${input_path}" in
@@ -93,6 +101,10 @@ contra_normalize_linux_policy_file() {
 }
 
 # Normalizes macOS inputs into a policies.json file path.
+# Input:
+# - $1: `.app` path or nested bundle path on macOS.
+# Output:
+# - Normalized policies.json path on success.
 contra_normalize_macos_policy_file() {
   local input_path="$1"
   local app_path=""
@@ -108,6 +120,10 @@ contra_normalize_macos_policy_file() {
 }
 
 # Collects unique policy-file targets for the current OS.
+# Input:
+# - $1: OS name, $2: optional firefox-path override, $3: explicit policy override.
+# Output:
+# - Deduplicated policy targets, one per line.
 contra_collect_policy_files() {
   local os_name="$1"
   local firefox_path_override="${2:-}"
@@ -175,6 +191,8 @@ contra_collect_policy_files() {
 }
 
 # Scans home directories for Firefox profile roots.
+# Output:
+# - Existing profile root directories under common home paths.
 contra_emit_profile_roots_from_homes() {
   local home_dir
   for home_dir in /home/* /root; do
@@ -183,6 +201,10 @@ contra_emit_profile_roots_from_homes() {
 }
 
 # Builds candidate Firefox profile roots in priority order.
+# Output:
+# - Profile roots in deterministic lookup order.
+# Notes:
+# - Custom roots from `CONTRA_FIREFOX_PROFILE_ROOTS` are checked first.
 contra_emit_profile_roots() {
   local sudo_home=""
   local sudo_user_home=""
@@ -210,11 +232,17 @@ contra_emit_profile_roots() {
 }
 
 # Returns unique existing profile-root directories.
+# Output:
+# - Deduplicated profile roots that currently exist.
 contra_collect_profile_roots() {
   contra_emit_profile_roots | awk 'NF && !seen[$0]++ && system("[ -d \"" $0 "\" ]") == 0'
 }
 
 # Reads profiles.ini and emits resolved profile paths.
+# Input:
+# - $1: profile root path.
+# Output:
+# - Resolved profile directories extracted from profiles.ini.
 contra_emit_profiles_from_profiles_ini() {
   local profile_root="$1"
   local ini_file="${profile_root}/profiles.ini"
@@ -238,6 +266,10 @@ contra_emit_profiles_from_profiles_ini() {
 }
 
 # Finds profile dirs by scanning profile-root contents.
+# Input:
+# - $1: profile root path.
+# Output:
+# - Candidate profile directories inferred from expected profile files.
 contra_emit_profiles_from_root_scan() {
   local profile_root="$1"
   local profile_dir base_name
@@ -252,6 +284,8 @@ contra_emit_profiles_from_root_scan() {
 }
 
 # Collects profile directories from all discovered roots.
+# Output:
+# - Raw list of profile directories discovered from all profile roots.
 contra_collect_firefox_profiles() {
   local profile_root
   while IFS= read -r profile_root; do
@@ -262,11 +296,17 @@ contra_collect_firefox_profiles() {
 }
 
 # Returns unique existing Firefox profile directories.
+# Output:
+# - Deduplicated profile directories that exist.
 contra_collect_firefox_profiles_unique() {
   contra_collect_firefox_profiles | awk 'NF && !seen[$0]++ && system("[ -d \"" $0 "\" ]") == 0'
 }
 
 # Builds managed extension XPI path for a profile.
+# Input:
+# - $1: profile directory, $2: addon id.
+# Output:
+# - Path to managed profile XPI location.
 contra_profile_extension_path() {
   local profile_dir="$1"
   local addon_id_local="$2"
@@ -274,6 +314,10 @@ contra_profile_extension_path() {
 }
 
 # Removes managed XPI from one Firefox profile if present.
+# Input:
+# - $1: profile directory, $2: addon id.
+# Output:
+# - status tuple: `removed|...`, `missing|...`, or `failed|...`.
 contra_remove_profile_xpi() {
   local profile_dir="$1"
   local addon_id_local="$2"
@@ -286,11 +330,17 @@ contra_remove_profile_xpi() {
 }
 
 # Checks whether Perl JSON::PP is available for JSON edits.
+# Return:
+# - 0 when perl + JSON::PP are available, non-zero otherwise.
 is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
 # Validates that a policies.json file is a JSON object.
+# Input:
+# - $1: policies.json candidate path.
+# Return:
+# - 0 when valid JSON object, non-zero otherwise.
 is_policy_json_valid() {
   local policy_file="$1"
   perl -MJSON::PP -e '
@@ -307,6 +357,10 @@ exit(($@ || ref($data) ne "HASH") ? 1 : 0);
 }
 
 # Removes only Contra-managed policy keys from policies.json.
+# Input:
+# - $1 input policy file, $2 addon id, $3 output file.
+# Output:
+# - `EMPTY`, `REMOVED`, or `MISSING` status on stdout.
 remove_addon_policy_entry() {
   local input_file="$1"
   local addon_id_value="$2"
@@ -426,6 +480,10 @@ if ($removed) {
 }
 
 # Verifies targeted Contra policy keys are absent after removal.
+# Input:
+# - $1: policy file path.
+# Return:
+# - 0 only when targeted managed keys are absent.
 verify_policy_uninstall() {
   local policy_file="$1"
 
@@ -493,6 +551,10 @@ print "PASS: Contra policy entry is removed and remaining policies are valid JSO
 }
 
 # Captures targeted policy-key state for diff-style summary.
+# Input:
+# - $1 policy file, $2 addon id, $3 output state file.
+# Behavior:
+# - Writes normalized key/value state snapshot for before/after comparison.
 collect_policy_state() {
   local policy_file="$1"
   local addon_id_value="$2"
@@ -558,16 +620,96 @@ print "HAS_FORCE_ADULT=$has_force_adult\n";
 }
 
 # Reads a single key from captured policy-state file.
+# Input:
+# - $1 state file path, $2 key name.
+# Output:
+# - Value for key from snapshot.
 state_value() {
   local state_file="$1"
   local key="$2"
   awk -F= -v key="${key}" '$1==key {print substr($0, index($0, "=") + 1); exit}' "${state_file}"
 }
 
+# Returns canonical key->label mappings for managed policy summary reporting.
+# Output:
+# - Lines in format `STATE_KEY|HUMAN_LABEL`.
+managed_policy_state_items() {
+  printf '%s\n' \
+    "HAS_DISABLE_SAFE_MODE|DisableSafeMode" \
+    "HAS_BLOCK_ABOUT_SUPPORT|BlockAboutSupport" \
+    "HAS_BLOCK_ABOUT_PROFILES|BlockAboutProfiles" \
+    "HAS_DISTRO_ADDONS_PREF|Preferences.extensions.installDistroAddons" \
+    "HAS_EXTENSION_ENTRY|ExtensionSettings[${addon_id}]" \
+    "HAS_FORCE_ADULT|3rdparty.Extensions[${addon_id}].forceAdultBlock"
+}
+
+# Adds labels for keys that are set to 1 in the provided state file.
+# Input:
+# - $1 state file, $2 destination set variable name.
+add_policies_present_in_state() {
+  local state_file="$1"
+  local set_var_name="$2"
+  local state_item=""
+  local state_key=""
+  local policy_label=""
+
+  while IFS= read -r state_item; do
+    state_key="${state_item%%|*}"
+    policy_label="${state_item#*|}"
+    if [[ "$(state_value "${state_file}" "${state_key}")" == "1" ]]; then
+      add_unique_value "${set_var_name}" "${policy_label}"
+    fi
+  done < <(managed_policy_state_items)
+}
+
+# Adds labels for keys that moved from 1 -> 0 between before/after states.
+# Input:
+# - $1 before-state file, $2 after-state file.
+add_removed_policies_from_state_diff() {
+  local before_state_file="$1"
+  local after_state_file="$2"
+  local state_item=""
+  local state_key=""
+  local policy_label=""
+  local before_value=""
+  local after_value=""
+
+  while IFS= read -r state_item; do
+    state_key="${state_item%%|*}"
+    policy_label="${state_item#*|}"
+    before_value="$(state_value "${before_state_file}" "${state_key}")"
+    after_value="$(state_value "${after_state_file}" "${state_key}")"
+    if [[ "${before_value}" == "1" && "${after_value}" == "0" ]]; then
+      add_unique_value policies_removed_set "${policy_label}"
+    fi
+  done < <(managed_policy_state_items)
+}
+
+# Checks whether all tracked managed policy keys are 0 in a state snapshot.
+# Input:
+# - $1 state file path.
+# Return:
+# - 0 when all managed keys are cleared, non-zero otherwise.
+state_has_no_managed_policy_keys() {
+  local state_file="$1"
+  local state_item=""
+  local state_key=""
+
+  while IFS= read -r state_item; do
+    state_key="${state_item%%|*}"
+    if [[ "$(state_value "${state_file}" "${state_key}")" != "0" ]]; then
+      return 1
+    fi
+  done < <(managed_policy_state_items)
+  return 0
+}
+
 # Tracks whether an in-place progress bar is currently displayed.
 progress_line_active=false
 
 # Renders an in-place progress bar on a single terminal line.
+# Input:
+# - $1 current value, $2 total value, $3 label text.
 render_progress_bar() {
   local current="$1"
   local total="$2"
@@ -593,6 +735,8 @@ render_progress_bar() {
 }
 
 # Finishes the in-place progress line with a trailing newline.
+# Behavior:
+# - Emits newline only if a progress bar line is currently active.
 finish_progress_bar_line() {
   if [[ "${progress_line_active}" == true ]]; then
     printf '\n'
@@ -600,7 +744,19 @@ finish_progress_bar_line() {
   fi
 }
 
+# Renders policy-removal progress using the fixed policy-stage percentage range.
+# Input:
+# - $1 current policy index, $2 total policy targets.
+render_policy_removal_progress() {
+  local index="$1"
+  local total="$2"
+  local progress_value=$((12 + (index * 58 / total)))
+  render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${index}/${total})"
+}
+
 # Normalizes and adds a single unique value to a newline-separated set variable.
+# Input:
+# - $1 variable name, $2 value to insert when missing.
 add_unique_value() {
   local var_name="$1"
   local value="$2"
@@ -621,6 +777,10 @@ add_unique_value() {
 }
 
 # Converts a newline-separated unique set variable to a sorted CSV line.
+# Input:
+# - $1 variable name containing newline-delimited values.
+# Output:
+# - Sorted CSV or `none` for empty sets.
 unique_values_to_csv() {
   local var_name="$1"
   local current="${!var_name:-}"
@@ -641,55 +801,8 @@ unique_values_to_csv() {
   '
 }
 
-# Removes legacy runtime guard/service artifacts when present.
-remove_runtime_services() {
-  local runtime_dir="${CONTRA_RUNTIME_DIR_OVERRIDE:-/etc/contra}"
-  local systemd_dir="${CONTRA_SYSTEMD_DIR_OVERRIDE:-/etc/systemd/system}"
-  local path=""
-  local unit=""
-
-  for path in \
-    "${runtime_dir}/contra-firefox-guard.sh" \
-    "${runtime_dir}/contra-firefox-rescan.sh" \
-    "${runtime_dir}/install-policy.sh" \
-    "${runtime_dir}/contra-firefox-guard.env" \
-    "${runtime_dir}/contra-firefox-rescan.env" \
-    "${systemd_dir}/contra-firefox-guard.service" \
-    "${systemd_dir}/contra-firefox-rescan.service" \
-    "${systemd_dir}/contra-firefox-rescan.timer" \
-    "/etc/contra/contra-firefox-guard.sh" \
-    "/etc/contra/contra-firefox-rescan.sh" \
-    "/etc/contra/install-policy.sh" \
-    "/etc/contra/contra-firefox-guard.env" \
-    "/etc/contra/contra-firefox-rescan.env" \
-    "/etc/systemd/system/contra-firefox-guard.service" \
-    "/etc/systemd/system/contra-firefox-rescan.service" \
-    "/etc/systemd/system/contra-firefox-rescan.timer"; do
-    [[ -e "${path}" ]] || continue
-    if [[ "${EUID}" -ne 0 && ! -w "${path}" && ! -w "$(dirname "${path}")" ]]; then
-      continue
-    fi
-    if rm -f "${path}" 2>/dev/null; then
-      printf '%s\n' "${path}"
-    fi
-  done
-
-  rmdir "${runtime_dir}" >/dev/null 2>&1 || true
-
-  if command -v systemctl >/dev/null 2>&1; then
-    for unit in \
-      "contra-firefox-guard.service" \
-      "contra-firefox-rescan.timer" \
-      "contra-firefox-rescan.service"; do
-      systemctl disable --now "${unit}" >/dev/null 2>&1 || true
-      systemctl stop "${unit}" >/dev/null 2>&1 || true
-    done
-    systemctl daemon-reload >/dev/null 2>&1 || true
-  fi
-
-  return 0
-}
-
+# Parse CLI arguments and update runtime state.
+# Unknown options fail fast to avoid silent misconfiguration.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --addon-id)
@@ -709,15 +822,6 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --yes|-y)
-      yes_mode=true
-      shift
-      ;;
-    --remove-guard)
-      remove_guard=true
-      shift
-      ;;
-    --keep-guard)
-      remove_guard=false
       shift
       ;;
     --remove-profile-seed)
@@ -740,11 +844,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Validate required arguments and fail early before mutating anything.
 if [[ -z "${addon_id}" ]]; then
   echo "--addon-id cannot be empty." >&2
   exit 1
 fi
 
+# Stage 1: preflight checks and privilege validation.
 TOTAL_PROGRESS=100
 render_progress_bar 3 "${TOTAL_PROGRESS}" "Preflight checks"
 if [[ "${skip_admin_check}" != "1" && "${EUID}" -ne 0 ]]; then
@@ -754,6 +860,7 @@ if [[ "${skip_admin_check}" != "1" && "${EUID}" -ne 0 ]]; then
 fi
 os_name="$(uname -s)"
 
+# Stage 2: discover policy file targets for the current host.
 render_progress_bar 10 "${TOTAL_PROGRESS}" "Finding policy files"
 policy_files=()
 while IFS= read -r policy_candidate; do
@@ -765,12 +872,14 @@ if [[ ${#policy_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Stage 3: verify JSON edit engine availability (required for safe key removal).
 if ! is_perl_jsonpp_available; then
   finish_progress_bar_line
   echo "Perl JSON::PP is required for safe policy-key removal."
   exit 1
 fi
 
+# Stage 4: create temporary workspace and initialize counters/summary sets.
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
 policy_index=0
@@ -783,9 +892,11 @@ policies_removed_set=""
 policies_left_set=""
 other_policies_preserved=0
 
+# Stage 5: remove managed keys from each discovered policy file target.
 policy_total="${#policy_files[@]}"
 render_progress_bar 12 "${TOTAL_PROGRESS}" "Removing policies (0/${policy_total})"
 for policy_file in "${policy_files[@]}"; do
+  # Build target-specific temp paths and per-target execution state.
   policy_index=$((policy_index + 1))
   policy_dir="$(dirname "${policy_file}")"
   before_state_file="${work_dir}/state-before-${policy_index}.txt"
@@ -794,79 +905,69 @@ for policy_file in "${policy_files[@]}"; do
   remove_error_file="${work_dir}/remove-error-${policy_index}.log"
   target_result="unchanged"
 
+  # Missing file is not an error; count and continue.
   if [[ ! -f "${policy_file}" ]]; then
     missing_targets=$((missing_targets + 1))
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
 
+  # Existing file: back it up before any destructive operation.
   backup_dir="${policy_dir}/contra-policy-backups"
   timestamp="$(date -u +%Y%m%d%H%M%S)"
   backup_path="${backup_dir}/policies-${timestamp}-${policy_index}.json"
   if ! install -d -m 0755 "${backup_dir}" || ! cp "${policy_file}" "${backup_path}" || ! chmod 0644 "${backup_path}"; then
     target_result="failed"
     failed_targets=$((failed_targets + 1))
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
 
+  # Corrupted JSON cannot be parsed safely; remove file as fallback.
   if ! is_policy_json_valid "${policy_file}"; then
     if ! rm -f "${policy_file}"; then
       target_result="failed"
       failed_targets=$((failed_targets + 1))
-      progress_value=$((12 + (policy_index * 58 / policy_total)))
-      render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+      render_policy_removal_progress "${policy_index}" "${policy_total}"
       continue
     fi
     target_result="removed"
     removed_all_targets=$((removed_all_targets + 1))
     add_unique_value files_changed "${policy_file}"
     add_unique_value policies_removed_set "unknown (invalid JSON file removed)"
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
 
+  # Capture before-state snapshot for accurate removal/leftover summaries.
   if ! collect_policy_state "${policy_file}" "${addon_id}" "${before_state_file}" 2>"${remove_error_file}"; then
     target_result="failed"
     failed_targets=$((failed_targets + 1))
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
 
+  # Apply managed-key removal into temp output and parse status.
   if ! remove_result="$(remove_addon_policy_entry "${policy_file}" "${addon_id}" "${updated_policy_json}" 2>"${remove_error_file}")"; then
     target_result="failed"
     failed_targets=$((failed_targets + 1))
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
   remove_status="$(printf '%s\n' "${remove_result}" | tail -n 1 | tr -d '[:space:]')"
 
+  # Handle each removal outcome:
+  # - EMPTY   => remove policy file completely
+  # - REMOVED/MISSING => write updated file
+  # - other   => treat as failure
   case "${remove_status}" in
     EMPTY)
-      before_disable="$(state_value "${before_state_file}" "HAS_DISABLE_SAFE_MODE")"
-      before_block_about_support="$(state_value "${before_state_file}" "HAS_BLOCK_ABOUT_SUPPORT")"
-      before_block_about_profiles="$(state_value "${before_state_file}" "HAS_BLOCK_ABOUT_PROFILES")"
-      before_distro_pref="$(state_value "${before_state_file}" "HAS_DISTRO_ADDONS_PREF")"
-      before_extension="$(state_value "${before_state_file}" "HAS_EXTENSION_ENTRY")"
-      before_force_adult="$(state_value "${before_state_file}" "HAS_FORCE_ADULT")"
-
-      if [[ "${before_disable}" == "1" ]]; then add_unique_value policies_removed_set "DisableSafeMode"; fi
-      if [[ "${before_block_about_support}" == "1" ]]; then add_unique_value policies_removed_set "BlockAboutSupport"; fi
-      if [[ "${before_block_about_profiles}" == "1" ]]; then add_unique_value policies_removed_set "BlockAboutProfiles"; fi
-      if [[ "${before_distro_pref}" == "1" ]]; then add_unique_value policies_removed_set "Preferences.extensions.installDistroAddons"; fi
-      if [[ "${before_extension}" == "1" ]]; then add_unique_value policies_removed_set "ExtensionSettings[${addon_id}]"; fi
-      if [[ "${before_force_adult}" == "1" ]]; then add_unique_value policies_removed_set "3rdparty.Extensions[${addon_id}].forceAdultBlock"; fi
+      add_policies_present_in_state "${before_state_file}" "policies_removed_set"
 
       if ! rm -f "${policy_file}"; then
         target_result="failed"
         failed_targets=$((failed_targets + 1))
-        progress_value=$((12 + (policy_index * 58 / policy_total)))
-        render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+        render_policy_removal_progress "${policy_index}" "${policy_total}"
         continue
       fi
       target_result="removed"
@@ -877,8 +978,7 @@ for policy_file in "${policy_files[@]}"; do
       if ! install -d -m 0755 "${policy_dir}" || ! install -m 0644 "${updated_policy_json}" "${policy_file}"; then
         target_result="failed"
         failed_targets=$((failed_targets + 1))
-        progress_value=$((12 + (policy_index * 58 / policy_total)))
-        render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+        render_policy_removal_progress "${policy_index}" "${policy_total}"
         continue
       fi
       target_result="updated"
@@ -888,70 +988,47 @@ for policy_file in "${policy_files[@]}"; do
     *)
       target_result="failed"
       failed_targets=$((failed_targets + 1))
-      progress_value=$((12 + (policy_index * 58 / policy_total)))
-      render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+      render_policy_removal_progress "${policy_index}" "${policy_total}"
       continue
       ;;
   esac
 
+  # Verify managed policy keys are absent after file mutation.
   if ! verify_policy_uninstall "${policy_file}" >/dev/null 2>&1; then
     target_result="failed"
     failed_targets=$((failed_targets + 1))
-    progress_value=$((12 + (policy_index * 58 / policy_total)))
-    render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi
 
+  # For updated files, compute before/after diffs for detailed summary output.
   if [[ "${target_result}" == "updated" ]]; then
     if ! collect_policy_state "${policy_file}" "${addon_id}" "${after_state_file}" 2>"${remove_error_file}"; then
       target_result="failed"
       failed_targets=$((failed_targets + 1))
-      progress_value=$((12 + (policy_index * 58 / policy_total)))
-      render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+      render_policy_removal_progress "${policy_index}" "${policy_total}"
       continue
     fi
 
-    before_disable="$(state_value "${before_state_file}" "HAS_DISABLE_SAFE_MODE")"
-    before_block_about_support="$(state_value "${before_state_file}" "HAS_BLOCK_ABOUT_SUPPORT")"
-    before_block_about_profiles="$(state_value "${before_state_file}" "HAS_BLOCK_ABOUT_PROFILES")"
-    before_distro_pref="$(state_value "${before_state_file}" "HAS_DISTRO_ADDONS_PREF")"
-    before_extension="$(state_value "${before_state_file}" "HAS_EXTENSION_ENTRY")"
-    before_force_adult="$(state_value "${before_state_file}" "HAS_FORCE_ADULT")"
-    after_disable="$(state_value "${after_state_file}" "HAS_DISABLE_SAFE_MODE")"
-    after_block_about_support="$(state_value "${after_state_file}" "HAS_BLOCK_ABOUT_SUPPORT")"
-    after_block_about_profiles="$(state_value "${after_state_file}" "HAS_BLOCK_ABOUT_PROFILES")"
-    after_distro_pref="$(state_value "${after_state_file}" "HAS_DISTRO_ADDONS_PREF")"
-    after_extension="$(state_value "${after_state_file}" "HAS_EXTENSION_ENTRY")"
-    after_force_adult="$(state_value "${after_state_file}" "HAS_FORCE_ADULT")"
+    add_removed_policies_from_state_diff "${before_state_file}" "${after_state_file}"
+    add_policies_present_in_state "${after_state_file}" "policies_left_set"
 
-    if [[ "${before_disable}" == "1" && "${after_disable}" == "0" ]]; then add_unique_value policies_removed_set "DisableSafeMode"; fi
-    if [[ "${before_block_about_support}" == "1" && "${after_block_about_support}" == "0" ]]; then add_unique_value policies_removed_set "BlockAboutSupport"; fi
-    if [[ "${before_block_about_profiles}" == "1" && "${after_block_about_profiles}" == "0" ]]; then add_unique_value policies_removed_set "BlockAboutProfiles"; fi
-    if [[ "${before_distro_pref}" == "1" && "${after_distro_pref}" == "0" ]]; then add_unique_value policies_removed_set "Preferences.extensions.installDistroAddons"; fi
-    if [[ "${before_extension}" == "1" && "${after_extension}" == "0" ]]; then add_unique_value policies_removed_set "ExtensionSettings[${addon_id}]"; fi
-    if [[ "${before_force_adult}" == "1" && "${after_force_adult}" == "0" ]]; then add_unique_value policies_removed_set "3rdparty.Extensions[${addon_id}].forceAdultBlock"; fi
-
-    if [[ "${after_disable}" == "1" ]]; then add_unique_value policies_left_set "DisableSafeMode"; fi
-    if [[ "${after_block_about_support}" == "1" ]]; then add_unique_value policies_left_set "BlockAboutSupport"; fi
-    if [[ "${after_block_about_profiles}" == "1" ]]; then add_unique_value policies_left_set "BlockAboutProfiles"; fi
-    if [[ "${after_distro_pref}" == "1" ]]; then add_unique_value policies_left_set "Preferences.extensions.installDistroAddons"; fi
-    if [[ "${after_extension}" == "1" ]]; then add_unique_value policies_left_set "ExtensionSettings[${addon_id}]"; fi
-    if [[ "${after_force_adult}" == "1" ]]; then add_unique_value policies_left_set "3rdparty.Extensions[${addon_id}].forceAdultBlock"; fi
-
-    if [[ "${after_disable}${after_block_about_support}${after_block_about_profiles}${after_distro_pref}${after_extension}${after_force_adult}" == "000000" ]]; then
+    if state_has_no_managed_policy_keys "${after_state_file}"; then
       other_policies_preserved=$((other_policies_preserved + 1))
     fi
   fi
 
-  progress_value=$((12 + (policy_index * 58 / policy_total)))
-  render_progress_bar "${progress_value}" "${TOTAL_PROGRESS}" "Removing policies (${policy_index}/${policy_total})"
+  # Advance progress bar for this policy target.
+  render_policy_removal_progress "${policy_index}" "${policy_total}"
 done
 
+# Stage 6: optionally remove profile-seeded XPI files from discovered profiles.
 render_progress_bar 72 "${TOTAL_PROGRESS}" "Policy removal complete"
 profile_removed=0
 profile_missing=0
 profile_failed=0
 if [[ "${remove_profile_seed}" == true ]]; then
+  # Gather profile list once for stable progress increments.
   profile_dirs=()
   while IFS= read -r profile_dir; do
     [[ -n "${profile_dir}" ]] && profile_dirs+=("${profile_dir}")
@@ -961,6 +1038,7 @@ if [[ "${remove_profile_seed}" == true ]]; then
   if [[ "${profile_total}" -gt 0 ]]; then
     profile_index=0
     render_progress_bar 73 "${TOTAL_PROGRESS}" "Cleaning profile seeds (0/${profile_total})"
+    # Remove managed profile XPI and bucket outcomes for summary/failure accounting.
     for profile_dir in "${profile_dirs[@]}"; do
       profile_index=$((profile_index + 1))
       remove_result="$(contra_remove_profile_xpi "${profile_dir}" "${addon_id}")" || true
@@ -983,27 +1061,16 @@ else
   render_progress_bar 88 "${TOTAL_PROGRESS}" "Profile seed cleanup skipped"
 fi
 
-render_progress_bar 95 "${TOTAL_PROGRESS}" "Cleaning runtime artifacts"
-runtime_remove_failures=0
-if [[ "${remove_guard}" == true ]]; then
-  runtime_removed_paths="$(remove_runtime_services)" || runtime_remove_failures=1
-  while IFS= read -r runtime_path; do
-    [[ -n "${runtime_path}" ]] && add_unique_value files_changed "${runtime_path}"
-  done <<< "${runtime_removed_paths:-}"
-  if [[ "${runtime_remove_failures}" -ne 0 ]]; then
-    runtime_remove_failures=1
-  fi
-fi
-
+# Stage 7: finalize reporting and return script status.
 render_progress_bar 100 "${TOTAL_PROGRESS}" "Complete"
 finish_progress_bar_line
 echo "Policies removed by this run: $(unique_values_to_csv policies_removed_set)"
 echo "Policies left after this run: $(unique_values_to_csv policies_left_set)"
 echo "Files changed: $(unique_values_to_csv files_changed)"
 
-total_failures=$((failed_targets + profile_failed + runtime_remove_failures))
+total_failures=$((failed_targets + profile_failed))
 if [[ "${total_failures}" -gt 0 ]]; then
-  echo "Counts: policy_files(missing=${missing_targets},updated=${updated_targets},removed=${removed_all_targets},failed=${failed_targets},other_preserved=${other_policies_preserved}); profiles(removed=${profile_removed},missing=${profile_missing},failed=${profile_failed}); runtime_cleanup_failures=${runtime_remove_failures}"
+  echo "Counts: policy_files(missing=${missing_targets},updated=${updated_targets},removed=${removed_all_targets},failed=${failed_targets},other_preserved=${other_policies_preserved}); profiles(removed=${profile_removed},missing=${profile_missing},failed=${profile_failed})"
   echo "Result: failure"
   exit 1
 fi
