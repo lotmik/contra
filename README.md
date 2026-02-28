@@ -7,7 +7,7 @@ I built the addon for my personal needs, and it is the only one on the market th
 - Phrase mode: allows you to set a phrase and only unblocks if you type it in (you can see the phrase, it is not like a secret password). The phrase has to be something profound, ideally an oath (the default one is a good example), so that when you type it, you make a conscious decision to leave your flow state.
 - Timer mode: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
 ## Install
-The addon has two modes: you can do it as a normal extention you can always remove or you can stop yourself from bypassing it in advance by using a custom Firefox Entreprise Policy. 
+The addon has two usecases: you can use it as a normal extention you can always remove OR you can stop yourself completely from bypassing it in advance by using a custom Firefox Entreprise Policy. 
 
 It's not necessary to install the addon from the marketplace because the script below already downloads the latest version for you (but you can still do that). 
 <details>
