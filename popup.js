@@ -437,12 +437,9 @@ function setTimerEndTimeWarning(message = "") {
   const text = String(message || "").trim();
   const hasWarning = text.length > 0;
 
-  elements.timerEndTimeInput.classList.toggle("is-invalid", hasWarning);
-  if (hasWarning) {
-    elements.timerEndTimeInput.setAttribute("aria-invalid", "true");
-  } else {
-    elements.timerEndTimeInput.removeAttribute("aria-invalid");
-  }
+  elements.timerEndTimeInput.classList.toggle("is-warning", hasWarning);
+  elements.timerEndTimeInput.classList.remove("is-invalid");
+  elements.timerEndTimeInput.removeAttribute("aria-invalid");
 
   if (!elements.timerEndTimeError) {
     return;

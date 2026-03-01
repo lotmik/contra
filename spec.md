@@ -294,3 +294,6 @@ When a forbidden tab is closed, keep the current browser window alive by ensurin
 - `node --check background.js`
 - Manual flow: open a fresh window with one tab, navigate it to a forbidden URL while blocking is active.
 - Manual flow: confirm the forbidden tab closes and the window remains open with a fallback new tab.
+
+<a href="https://addons.mozilla.org/firefox/addon/contra-blocker/"><img alt="Firefox Downloads" src="https://img.shields.io/amo/dw/contra%40ltdmk?label=Downloads"></a>
+<a href="https://addons.mozilla.org/firefox/addon/contra-blocker/"><img alt="Firefox Rating" src="https://img.shields.io/amo/rating/contra%40ltdmk?label=Rating"></a>

@@ -344,12 +344,29 @@ textarea {
   outline-offset: 1px;
 }
 
-.field-error {
+#timer-end-time.is-warning {
+  border-color: #5f86ad;
+}
+
+#timer-end-time.is-warning:focus-visible {
+  outline: 2px solid #5f86ad;
+  outline-offset: 1px;
+}
+
+.field-error,
+.field-warning {
   margin: 0;
   min-height: 14px;
-  color: #ca4754;
   font-size: 11px;
   line-height: 1.25;
+}
+
+.field-error {
+  color: #ca4754;
+}
+
+.field-warning {
+  color: #9cc0e3;
 }
 
 input[type="range"] {
