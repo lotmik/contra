@@ -8,11 +8,10 @@ I built the addon for my personal needs, and it is the only one on the market th
 - ⏲️ **Timer mode**: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
 - 🔞 **Adult mode**: when enabled, offers a bulletproof blocking of all explicit websites from two constantly updated lists ([this](https://github.com/Bon-Appetit/porn-domains) and [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)).
 ## Install
-The addon has two usecases: you can use it as a normal extention you can always remove OR you can stop yourself completely from bypassing it in advance by using a custom Firefox Entreprise Policy. 
+The addon has two usecases: you can use it as a normal extention you can always remove OR you can stop yourself completely from bypassing it in advance by using a custom Firefox Entreprise Policy. Basically, it enforces some rules for firefox which a non-admin user cannot change.
 
-It's not necessary to install the addon from the marketplace because the script below already downloads the latest version for you (but you can still do that). 
 <details>
-<summary><h4>What the script does</h4></summary>
+<summary>What the script does</summary>
 
 - `policies.DisableSafeMode: true`  
     Prevents starting Firefox in Safe/Troubleshoot Mode, which normally disables extensions temporarily, closing a common bypass route.  
@@ -42,12 +41,13 @@ It's not necessary to install the addon from the marketplace because the script 
 
 ⚠️ **IMPORTANT:** you have to run the policy installation script as admin (sudo). Normally, if you see something similar on the internet, you **always** have to be highly sceptical. In case of contra., a custom enterprise policy is the only way to make the extention impossible to bypass. That's why I tried to provide the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to check the safety. **NEVER trust anybody who wants you to run anything as admin.**
 
-### One-line install
-
+### Policy install
+Run this script as admin, then reopen all Firefox windows. After that, go to `about:policies` and confirm the installation.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/install-policy.sh | sudo bash
 ```
 ### Uninstall
+The script is intended to be emergency-only, be really conscious when running it.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/uninstall-policy.sh | sudo bash
