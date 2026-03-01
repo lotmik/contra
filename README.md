@@ -16,8 +16,9 @@ I built this addon for my personal needs because I could not find such a hardcor
 - ⏲️ **Timer mode**: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
 - 🔞 **Adult mode**: when enabled, blocks all explicit websites from two constantly updated lists ([this](https://github.com/Bon-Appetit/porn-domains) and [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
 ## Install
-Although you can use the addon separately, it is recommended to reduce all bypassing in advance by using a custom Firefox Entreprise Policy. It basically enforces some rules for Firefox which you cannot change that easily.
-I created a script that automatically installs everything for, but you can also do it by hand.
+Although you can use the addon separately, it is recommended to cut all bypass methods in advance by getting a custom Firefox Entreprise Policy. It basically enforces some rules for Firefox like force install of the addon, which you cannot change easily.
+
+I created a script that automatically installs everything for you, but you can also do it by hand.
 
 <details>
 <summary>What the script does</summary>
@@ -48,7 +49,7 @@ I created a script that automatically installs everything for, but you can also 
     This enables the adult mode. If it is enabled during config, the addon checks if a site you are about to open is in [this](https://github.com/Bon-Appetit/porn-domains) or [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File) list of explicit websites. If yes, contra. closes the tab before the website even loads. (Out of contra's 4,3MB, 99% is used up by these pre-packed lists.)
 </details>
 
-⚠️ **IMPORTANT:** you have to run the policy installation script as admin/sudo. Normally, if you see something similar on the Internet, you **always** have to be very sceptical. In case of contra., a custom policy is the only way to make the addon impossible to bypass. I tried to provide the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to check the safety. You have to always double check before running such scripts.
+⚠️ **IMPORTANT:** you have to run the policy installation script as admin/sudo. In case of contra., a custom policy is the only way to make the addon impossible to bypass. I provided the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to verify the safety.
 ### Policy install
 Run this script as admin, then reopen all Firefox windows. After that, go to `about:policies` and confirm the installation.
 ```bash
