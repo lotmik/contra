@@ -1,4 +1,18 @@
-# contra. — break out of the dopamine cage
+<h1 align="center">
+<sub>
+    
+![GitHub commit activity](https://img.shields.io/github/commit-activity/m/lotmik/contra?label=Commits)
+<a rel="noreferrer noopener" href="https://addons.mozilla.org/firefox/addon/contra-blocker/"><img alt="Firefox Add-ons" src="https://img.shields.io/badge/Firefox-141e24.svg?logo=firefox-browser"></a>
+![Firefox Downloads](https://img.shields.io/amo/dw/contra%40ltdmk?label=Downloads)
+![Firefox Rating](https://img.shields.io/amo/rating/contra%40ltdmk?label=Rating)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)
+
+</sub>
+<sub>
+<img src="https://github.com/lotmik/contra/icons/icon-source.svg" height="38" width="38">
+</sub>
+contra. — work deeply
+</h1>
 
 contra. is a lightweight Firefox addon for bulletproof blocking of distractions.
 I built the addon for my personal needs, and it is the only one on the market that really makes itself impossible to bypass, shifting the priority from internet distractions to longer and better [deep work](https://calnewport.com/deep-work-rules-for-focused-success-in-a-distracted-world/) sessions.
