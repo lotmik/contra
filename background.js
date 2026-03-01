@@ -590,21 +590,13 @@ function canStopBlocking() {
   return timerExpired;
 }
 
-function shouldShowTimerExpiredBadge() {
-  return isBlocking && unlockMode === "timer" && timerExpired;
-}
-
 async function updateActionBadge() {
   if (!browser?.action?.setBadgeText) {
     return;
   }
 
   try {
-    const showTimerExpiredBadge = shouldShowTimerExpiredBadge();
-    await browser.action.setBadgeText({ text: showTimerExpiredBadge ? "•" : "" });
-    if (showTimerExpiredBadge && browser?.action?.setBadgeBackgroundColor) {
-      await browser.action.setBadgeBackgroundColor({ color: "#ff3b30" });
-    }
+    await browser.action.setBadgeText({ text: "" });
   } catch {
     // Ignore unsupported action badge APIs so blocking logic remains unaffected.
   }
