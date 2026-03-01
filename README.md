@@ -4,9 +4,9 @@
 </sub>
 contra.
 <a rel="noreferrer noopener" href="https://addons.mozilla.org/firefox/addon/contra-blocker/"><img alt="Firefox Add-ons" src="https://img.shields.io/badge/Firefox-141e24.svg?logo=firefox-browser"></a>
-![Firefox Downloads](https://img.shields.io/amo/dw/contra%40ltdmk?label=Downloads)
-![Firefox Rating](https://img.shields.io/amo/rating/contra%40ltdmk?label=Rating)
-![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black)
+<img alt="Firefox Downloads" src="https://img.shields.io/amo/dw/contra%40ltdmk?label=Downloads">
+<img alt="Firefox Rating" src="https://img.shields.io/amo/rating/contra%40ltdmk?label=Rating">
+<img alt="Linux" src="https://img.shields.io/badge/Linux-FCC624?style=flat&logo=linux&logoColor=black">
 </h1>
 
 contra. is a lightweight Firefox addon for bulletproof blocking of distractions.
