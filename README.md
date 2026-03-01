@@ -17,7 +17,7 @@ I built this addon for my personal needs because I could not find such a hardcor
 - 🔞 **Adult mode**: when enabled, blocks all explicit websites from two constantly updated lists ([this](https://github.com/Bon-Appetit/porn-domains) and [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
 ## Install
 Although you can use the addon separately, it is recommended to reduce all bypassing in advance by using a custom Firefox Entreprise Policy. It basically enforces some rules for Firefox which you cannot change that easily.
-I created a script that automatically install everything you need, but you can also install everything by hand.
+I created a script that automatically installs everything for, but you can also do it by hand.
 
 <details>
 <summary>What the script does</summary>
