@@ -590,19 +590,28 @@ function canStopBlocking() {
   return timerExpired;
 }
 
+function shouldShowTimerExpiredBadge() {
+  return isBlocking && unlockMode === "timer" && timerExpired;
+}
+
 async function updateActionBadge() {
   if (!browser?.action?.setBadgeText) {
     return;
   }
 
   try {
-    await browser.action.setBadgeText({ text: "" });
+    const badgeText = shouldShowTimerExpiredBadge() ? "•" : "";
+    await browser.action.setBadgeText({ text: badgeText });
+    if (badgeText && browser?.action?.setBadgeBackgroundColor) {
+      await browser.action.setBadgeBackgroundColor({ color: "#ff3b30" });
+    }
   } catch {
     // Ignore unsupported action badge APIs so blocking logic remains unaffected.
   }
 }
 
 async function clearStaleActionBadges() {
+  const badgeText = shouldShowTimerExpiredBadge() ? "•" : "";
   await updateActionBadge();
 
   if (!browser?.action?.setBadgeText || !browser?.tabs?.query) {
@@ -616,7 +625,7 @@ async function clearStaleActionBadges() {
       .filter((tabId) => Number.isInteger(tabId) && tabId >= 0);
 
     await Promise.allSettled(
-      tabIds.map((tabId) => browser.action.setBadgeText({ text: "", tabId }))
+      tabIds.map((tabId) => browser.action.setBadgeText({ text: badgeText, tabId }))
     );
   } catch {
     // Ignore tab-query failures; global badge clear already ran.

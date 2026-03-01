@@ -12,7 +12,7 @@ The addon has two usecases: you can use it as a normal extention you can always 
 
 It's not necessary to install the addon from the marketplace because the script below already downloads the latest version for you (but you can still do that). 
 <details>
-<summary><b>What the script does</b></summary>
+<summary><h4>What the script does</h4></summary>
 
 - `policies.DisableSafeMode: true`  
     Prevents starting Firefox in Safe/Troubleshoot Mode, which normally disables extensions temporarily, closing a common bypass route.  
