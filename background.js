@@ -602,6 +602,27 @@ async function updateActionBadge() {
   }
 }
 
+async function clearStaleActionBadges() {
+  await updateActionBadge();
+
+  if (!browser?.action?.setBadgeText || !browser?.tabs?.query) {
+    return;
+  }
+
+  try {
+    const tabs = await browser.tabs.query({});
+    const tabIds = tabs
+      .map((tab) => tab?.id)
+      .filter((tabId) => Number.isInteger(tabId) && tabId >= 0);
+
+    await Promise.allSettled(
+      tabIds.map((tabId) => browser.action.setBadgeText({ text: "", tabId }))
+    );
+  } catch {
+    // Ignore tab-query failures; global badge clear already ran.
+  }
+}
+
 async function removeTabSafely(tabId) {
   try {
     await browser.tabs.remove(tabId);
@@ -1244,6 +1265,16 @@ browser.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+browser.runtime.onInstalled.addListener(() => {
+  void clearStaleActionBadges();
+});
+
+if (browser?.runtime?.onStartup?.addListener) {
+  browser.runtime.onStartup.addListener(() => {
+    void clearStaleActionBadges();
+  });
+}
+
 browser.runtime.onMessage.addListener((message = {}) => {
   const type = message.type;
   const payload = message.payload || {};
@@ -1303,6 +1334,8 @@ browser.runtime.onMessage.addListener((message = {}) => {
   return Promise.resolve({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
 });
 
+void clearStaleActionBadges();
+
 void loadState()
   .then(async () => {
     await setupAdultListRefreshAlarm();
@@ -1315,7 +1348,7 @@ void loadState()
     }
 
     await reconcileTimers();
-    await updateActionBadge();
+    await clearStaleActionBadges();
     reconcileAggressiveTamperMonitor();
     if (shouldEnforceBlocking()) {
       await aggressivelyCloseTamperTabsByQuery();
@@ -1323,5 +1356,6 @@ void loadState()
     }
   })
   .catch(() => {
+    void clearStaleActionBadges();
     // Ignore bootstrap errors to keep the worker alive; defaults remain in effect.
   });

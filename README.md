@@ -40,7 +40,7 @@ It's not necessary to install the addon from the marketplace because the script 
     This enables the adult mode. If it is enabled during config, the addon checks if a site you are about to open is in [this](https://github.com/Bon-Appetit/porn-domains) or [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File) list of explicit websites. If yes, contra. closes the tab before the website even loads. (Out of the contra's size of 4,3MB, 99% is used up by these pre-packed lists.)
 </details>
 
-**IMPORTANT:** you have to run the policy installation script as admin (sudo). Normally, if you see something similar on the internet, you **always** have to be highly sceptical. In case of contra., a custom enterprise policy is the only way to make the extention impossible to bypass. That's why I tried to provide the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to check the safety. **NEVER trust anybody who wants you to run anything as admin.**
+⚠️ **IMPORTANT:** you have to run the policy installation script as admin (sudo). Normally, if you see something similar on the internet, you **always** have to be highly sceptical. In case of contra., a custom enterprise policy is the only way to make the extention impossible to bypass. That's why I tried to provide the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to check the safety. **NEVER trust anybody who wants you to run anything as admin.**
 
 ### One-line install
 
