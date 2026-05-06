@@ -599,10 +599,10 @@ async function updateActionBadge() {
   }
 
   try {
-    const badgeText = shouldShowTimerExpiredBadge() ? "•" : "";
+    const badgeText = shouldShowTimerExpiredBadge() ? "up" : "";
     await browser.action.setBadgeText({ text: badgeText });
     if (badgeText && browser?.action?.setBadgeBackgroundColor) {
-      await browser.action.setBadgeBackgroundColor({ color: "#ff3b30" });
+      await browser.action.setBadgeBackgroundColor({ color: "#6b7280" });
     }
   } catch {
     // Ignore unsupported action badge APIs so blocking logic remains unaffected.
@@ -610,7 +610,7 @@ async function updateActionBadge() {
 }
 
 async function clearStaleActionBadges() {
-  const badgeText = shouldShowTimerExpiredBadge() ? "•" : "";
+  const badgeText = shouldShowTimerExpiredBadge() ? "up" : "";
   await updateActionBadge();
 
   if (!browser?.action?.setBadgeText || !browser?.tabs?.query) {
