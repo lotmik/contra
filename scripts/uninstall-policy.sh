@@ -14,6 +14,8 @@ firefox_path=""
 policy_file_override="${CONTRA_POLICY_FILE_OVERRIDE:-}"
 skip_admin_check="${CONTRA_SKIP_ADMIN_CHECK:-0}"
 remove_profile_seed=true
+yes_mode=false
+json_fallback_mode="edit"
 
 # Prints CLI usage and available flags.
 # Behavior:
@@ -29,7 +31,7 @@ Options:
   --firefox-path PATH      Optional Firefox app/bin/install path to include (default: auto-detect)
   --remove-profile-seed    Remove profile-seeded extension files (default: true)
   --keep-profile-seed      Keep profile-seeded extension files
-  --yes, -y                Non-interactive mode (currently informational)
+  --yes, -y                Non-interactive mode (uses python3 fallback when Perl is missing)
   -h, --help               Show help
 USAGE
 }
@@ -336,6 +338,119 @@ is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
+# Checks whether Python 3 is available for JSON edits.
+# Return:
+# - 0 when python3 is available, non-zero otherwise.
+is_python3_available() {
+  command -v python3 >/dev/null 2>&1
+}
+
+# Resolves the JSON edit engine used by this script.
+# Output:
+# - `perl`, `python3`, or `none`.
+json_edit_engine() {
+  if is_perl_jsonpp_available; then
+    printf '%s\n' "perl"
+  elif is_python3_available; then
+    printf '%s\n' "python3"
+  else
+    printf '%s\n' "none"
+  fi
+}
+
+is_interactive_shell() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
+run_linux_perl_install() {
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update && apt-get install -y perl
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y perl
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y perl
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -S --needed --noconfirm perl
+  elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive install perl
+  else
+    echo "Could not detect a supported package manager for Perl installation." >&2
+    return 1
+  fi
+}
+
+run_macos_perl_install() {
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "Homebrew is required for automatic Perl installation on macOS." >&2
+    return 1
+  fi
+  if [[ "${EUID}" -eq 0 && -n "${SUDO_USER:-}" ]]; then
+    sudo -u "${SUDO_USER}" brew install perl
+  else
+    brew install perl
+  fi
+}
+
+install_perl_jsonpp() {
+  case "${os_name}" in
+    Linux) run_linux_perl_install ;;
+    Darwin) run_macos_perl_install ;;
+    *) echo "Unsupported operating system for automatic Perl installation: ${os_name}" >&2; return 1 ;;
+  esac
+
+  is_perl_jsonpp_available
+}
+
+prompt_json_strategy_without_perl() {
+  local answer=""
+
+  if is_python3_available; then
+    read -r -p "Perl JSON::PP is unavailable. Choose [p]ython fallback, [i]nstall Perl and continue, [r]emove whole policy files after backup, or [a]bort (default: python): " answer < /dev/tty
+    answer="${answer,,}"
+    case "${answer}" in
+      ""|p|python|python3) printf 'python\n'; return 0 ;;
+      i|install) printf 'install\n'; return 0 ;;
+      r|remove) printf 'remove-files\n'; return 0 ;;
+      a|abort) printf 'abort\n'; return 0 ;;
+    esac
+  else
+    read -r -p "Perl JSON::PP and python3 are unavailable. Choose [i]nstall Perl and continue, [r]emove whole policy files after backup, or [a]bort (default: install): " answer < /dev/tty
+    answer="${answer,,}"
+    case "${answer}" in
+      ""|i|install) printf 'install\n'; return 0 ;;
+      r|remove) printf 'remove-files\n'; return 0 ;;
+      a|abort) printf 'abort\n'; return 0 ;;
+    esac
+  fi
+
+  echo "Invalid selection: ${answer}" >&2
+  return 1
+}
+
+ensure_uninstall_json_strategy() {
+  local selected_strategy=""
+
+  is_perl_jsonpp_available && return 0
+  if [[ "${yes_mode}" == true ]] || ! is_interactive_shell; then
+    if is_python3_available; then
+      echo "Perl JSON::PP unavailable; using python3 fallback." >&2
+      return 0
+    fi
+    echo "A JSON edit engine is required for safe policy-key removal. Install Perl JSON::PP or python3." >&2
+    return 1
+  fi
+
+  while true; do
+    selected_strategy="$(prompt_json_strategy_without_perl)" || continue
+    case "${selected_strategy}" in
+      python) echo "Using python3 fallback for JSON policy edits."; return 0 ;;
+      install) install_perl_jsonpp && return 0; echo "Perl installation failed or JSON::PP is still unavailable." >&2 ;;
+      remove-files) json_fallback_mode="remove-files"; return 0 ;;
+      abort) return 1 ;;
+    esac
+  done
+}
+
 # Validates that a policies.json file is a JSON object.
 # Input:
 # - $1: policies.json candidate path.
@@ -343,7 +458,8 @@ is_perl_jsonpp_available() {
 # - 0 when valid JSON object, non-zero otherwise.
 is_policy_json_valid() {
   local policy_file="$1"
-  perl -MJSON::PP -e '
+  if is_perl_jsonpp_available; then
+    perl -MJSON::PP -e '
 use strict;
 use warnings;
 my ($path) = @ARGV;
@@ -354,6 +470,27 @@ close $fh;
 my $data = eval { JSON::PP::decode_json($raw) };
 exit(($@ || ref($data) ne "HASH") ? 1 : 0);
 ' "${policy_file}" >/dev/null 2>&1
+    return
+  fi
+
+  if is_python3_available; then
+    python3 - "${policy_file}" >/dev/null 2>&1 <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+
+raise SystemExit(0 if isinstance(data, dict) else 1)
+PY
+    return
+  fi
+
+  return 1
 }
 
 # Removes only Contra-managed policy keys from policies.json.
@@ -367,7 +504,8 @@ remove_addon_policy_entry() {
   local output_file="$3"
 
   # Remove only Contra-managed policy keys and keep unrelated policy keys intact.
-  perl -MJSON::PP -e '
+  if is_perl_jsonpp_available; then
+    perl -MJSON::PP -e '
 use strict;
 use warnings;
 
@@ -477,6 +615,95 @@ if ($removed) {
   print "MISSING\n";
 }
 ' "${input_file}" "${addon_id_value}" "${output_file}"
+    return
+  fi
+
+  if ! is_python3_available; then
+    echo "No supported JSON edit engine is available." >&2
+    return 1
+  fi
+
+  python3 - "${input_file}" "${addon_id_value}" "${output_file}" <<'PY'
+import json
+import sys
+
+path, addon_id, output_path = sys.argv[1:4]
+
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    raise SystemExit("Failed to read policies.json")
+except json.JSONDecodeError:
+    raise SystemExit("Existing policies.json is invalid JSON.")
+
+if not isinstance(data, dict):
+    raise SystemExit("Existing policies.json top-level must be a JSON object.")
+
+removed = False
+policies = data.get("policies")
+if isinstance(policies, dict):
+    settings = policies.get("ExtensionSettings")
+    if isinstance(settings, dict):
+        if addon_id in settings:
+            del settings[addon_id]
+            removed = True
+        if not settings:
+            policies.pop("ExtensionSettings", None)
+        if not policies:
+            data.pop("policies", None)
+            policies = data.get("policies")
+
+if isinstance(policies, dict):
+    thirdparty = policies.get("3rdparty")
+    extensions = thirdparty.get("Extensions") if isinstance(thirdparty, dict) else None
+    managed_entry = extensions.get(addon_id) if isinstance(extensions, dict) else None
+    if isinstance(managed_entry, dict) and "forceAdultBlock" in managed_entry:
+        del managed_entry["forceAdultBlock"]
+        removed = True
+    if isinstance(managed_entry, dict) and not managed_entry and isinstance(extensions, dict):
+        extensions.pop(addon_id, None)
+    if isinstance(extensions, dict) and not extensions and isinstance(thirdparty, dict):
+        thirdparty.pop("Extensions", None)
+    if isinstance(thirdparty, dict) and not thirdparty:
+        policies.pop("3rdparty", None)
+    if not policies:
+        data.pop("policies", None)
+        policies = data.get("policies")
+
+if isinstance(policies, dict) and "DisableSafeMode" in policies:
+    del policies["DisableSafeMode"]
+    removed = True
+
+if isinstance(policies, dict) and "BlockAboutSupport" in policies:
+    del policies["BlockAboutSupport"]
+    removed = True
+
+if isinstance(policies, dict) and "BlockAboutProfiles" in policies:
+    del policies["BlockAboutProfiles"]
+    removed = True
+
+if isinstance(policies, dict):
+    prefs = policies.get("Preferences")
+    if isinstance(prefs, dict) and "extensions.installDistroAddons" in prefs:
+        del prefs["extensions.installDistroAddons"]
+        removed = True
+        if not prefs:
+            policies.pop("Preferences", None)
+
+if isinstance(policies, dict) and not policies:
+    data.pop("policies", None)
+
+if not data:
+    print("EMPTY")
+    raise SystemExit(0)
+
+with open(output_path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2, sort_keys=True, ensure_ascii=False)
+    fh.write("\n")
+
+print("REMOVED" if removed else "MISSING")
+PY
 }
 
 # Verifies targeted Contra policy keys are absent after removal.
@@ -492,12 +719,8 @@ verify_policy_uninstall() {
     return 0
   fi
 
-  if ! is_perl_jsonpp_available; then
-    echo "FAIL: cannot validate uninstall because Perl JSON::PP is unavailable." >&2
-    return 1
-  fi
-
-  perl -MJSON::PP -e '
+  if is_perl_jsonpp_available; then
+    perl -MJSON::PP -e '
 use strict;
 use warnings;
 
@@ -548,6 +771,57 @@ if (
 
 print "PASS: Contra policy entry is removed and remaining policies are valid JSON.\n";
 ' "${policy_file}" "${addon_id}"
+    return
+  fi
+
+  if is_python3_available; then
+    python3 - "${policy_file}" "${addon_id}" <<'PY'
+import json
+import sys
+
+path, addon_id = sys.argv[1:3]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except OSError:
+    raise SystemExit(f"FAIL: could not read {path}")
+except json.JSONDecodeError:
+    raise SystemExit("FAIL: policies.json is invalid JSON")
+
+if not isinstance(data, dict):
+    raise SystemExit("FAIL: policies.json top-level is not a JSON object")
+
+policies = data.get("policies")
+settings = policies.get("ExtensionSettings") if isinstance(policies, dict) else None
+if isinstance(settings, dict) and addon_id in settings:
+    raise SystemExit(f"FAIL: ExtensionSettings still contains {addon_id}")
+
+thirdparty = policies.get("3rdparty") if isinstance(policies, dict) else None
+extensions = thirdparty.get("Extensions") if isinstance(thirdparty, dict) else None
+managed = extensions.get(addon_id) if isinstance(extensions, dict) else None
+if isinstance(managed, dict) and "forceAdultBlock" in managed:
+    raise SystemExit(f"FAIL: managed policy forceAdultBlock still exists for {addon_id}")
+
+if isinstance(policies, dict) and "DisableSafeMode" in policies:
+    raise SystemExit("FAIL: DisableSafeMode still exists in policies")
+
+if isinstance(policies, dict) and "BlockAboutSupport" in policies:
+    raise SystemExit("FAIL: BlockAboutSupport still exists in policies")
+
+if isinstance(policies, dict) and "BlockAboutProfiles" in policies:
+    raise SystemExit("FAIL: BlockAboutProfiles still exists in policies")
+
+prefs = policies.get("Preferences") if isinstance(policies, dict) else None
+if isinstance(prefs, dict) and "extensions.installDistroAddons" in prefs:
+    raise SystemExit("FAIL: Preferences.extensions.installDistroAddons still exists in policies")
+
+print("PASS: Contra policy entry is removed and remaining policies are valid JSON.")
+PY
+    return
+  fi
+
+  echo "FAIL: cannot validate uninstall because neither Perl JSON::PP nor python3 is available." >&2
+  return 1
 }
 
 # Captures targeted policy-key state for diff-style summary.
@@ -560,7 +834,8 @@ collect_policy_state() {
   local addon_id_value="$2"
   local output_file="$3"
 
-  perl -MJSON::PP -e '
+  if is_perl_jsonpp_available; then
+    perl -MJSON::PP -e '
 use strict;
 use warnings;
 
@@ -617,6 +892,70 @@ print "HAS_DISTRO_ADDONS_PREF=$has_distro_pref\n";
 print "HAS_EXTENSION_ENTRY=$has_extension\n";
 print "HAS_FORCE_ADULT=$has_force_adult\n";
 ' "${policy_file}" "${addon_id_value}" > "${output_file}"
+    return
+  fi
+
+  if ! is_python3_available; then
+    echo "No supported JSON edit engine is available." >&2
+    return 1
+  fi
+
+  python3 - "${policy_file}" "${addon_id_value}" > "${output_file}" <<'PY'
+import json
+import sys
+
+path, addon_id = sys.argv[1:3]
+if path and not __import__("os").path.isfile(path):
+    print("FILE_EXISTS=0")
+    print("POLICY_KEYS=<none>")
+    print("HAS_DISABLE_SAFE_MODE=0")
+    print("HAS_BLOCK_ABOUT_SUPPORT=0")
+    print("HAS_BLOCK_ABOUT_PROFILES=0")
+    print("HAS_DISTRO_ADDONS_PREF=0")
+    print("HAS_EXTENSION_ENTRY=0")
+    print("HAS_FORCE_ADULT=0")
+    raise SystemExit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except OSError:
+    raise SystemExit(f"Could not read {path}")
+except json.JSONDecodeError:
+    raise SystemExit(f"Invalid JSON in {path}")
+
+if not isinstance(data, dict):
+    raise SystemExit(f"Top-level JSON must be an object in {path}")
+
+policies = data.get("policies")
+policy_keys = sorted(policies.keys()) if isinstance(policies, dict) else []
+prefs = policies.get("Preferences") if isinstance(policies, dict) else None
+pref_entry = prefs.get("extensions.installDistroAddons") if isinstance(prefs, dict) else None
+settings = policies.get("ExtensionSettings") if isinstance(policies, dict) else None
+thirdparty = policies.get("3rdparty") if isinstance(policies, dict) else None
+extensions = thirdparty.get("Extensions") if isinstance(thirdparty, dict) else None
+managed = extensions.get(addon_id) if isinstance(extensions, dict) else None
+
+has_disable = int(isinstance(policies, dict) and bool(policies.get("DisableSafeMode")))
+has_block_about_support = int(isinstance(policies, dict) and bool(policies.get("BlockAboutSupport")))
+has_block_about_profiles = int(isinstance(policies, dict) and bool(policies.get("BlockAboutProfiles")))
+has_distro_pref = int(
+    isinstance(pref_entry, dict)
+    and bool(pref_entry.get("Value"))
+    and pref_entry.get("Status", "") == "locked"
+)
+has_extension = int(isinstance(settings, dict) and isinstance(settings.get(addon_id), dict))
+has_force_adult = int(isinstance(managed, dict) and bool(managed.get("forceAdultBlock")))
+
+print("FILE_EXISTS=1")
+print(f"POLICY_KEYS={','.join(policy_keys) if policy_keys else '<none>'}")
+print(f"HAS_DISABLE_SAFE_MODE={has_disable}")
+print(f"HAS_BLOCK_ABOUT_SUPPORT={has_block_about_support}")
+print(f"HAS_BLOCK_ABOUT_PROFILES={has_block_about_profiles}")
+print(f"HAS_DISTRO_ADDONS_PREF={has_distro_pref}")
+print(f"HAS_EXTENSION_ENTRY={has_extension}")
+print(f"HAS_FORCE_ADULT={has_force_adult}")
+PY
 }
 
 # Reads a single key from captured policy-state file.
@@ -822,6 +1161,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --yes|-y)
+      yes_mode=true
       shift
       ;;
     --remove-profile-seed)
@@ -872,10 +1212,10 @@ if [[ ${#policy_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Stage 3: verify JSON edit engine availability (required for safe key removal).
-if ! is_perl_jsonpp_available; then
-  finish_progress_bar_line
-  echo "Perl JSON::PP is required for safe policy-key removal."
+# Stage 3: choose JSON edit strategy when Perl JSON::PP is unavailable.
+finish_progress_bar_line
+if ! ensure_uninstall_json_strategy; then
+  echo "Uninstall aborted."
   exit 1
 fi
 
@@ -919,6 +1259,22 @@ for policy_file in "${policy_files[@]}"; do
   if ! install -d -m 0755 "${backup_dir}" || ! cp "${policy_file}" "${backup_path}" || ! chmod 0644 "${backup_path}"; then
     target_result="failed"
     failed_targets=$((failed_targets + 1))
+    render_policy_removal_progress "${policy_index}" "${policy_total}"
+    continue
+  fi
+
+  # Parser-free emergency fallback: backup was created, then remove whole file.
+  if [[ "${json_fallback_mode}" == "remove-files" ]]; then
+    if ! rm -f "${policy_file}"; then
+      target_result="failed"
+      failed_targets=$((failed_targets + 1))
+      render_policy_removal_progress "${policy_index}" "${policy_total}"
+      continue
+    fi
+    target_result="removed"
+    removed_all_targets=$((removed_all_targets + 1))
+    add_unique_value files_changed "${policy_file}"
+    add_unique_value policies_removed_set "unknown (whole policy file removed after backup)"
     render_policy_removal_progress "${policy_index}" "${policy_total}"
     continue
   fi

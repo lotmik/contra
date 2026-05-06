@@ -1,5 +1,6 @@
 {
   "policies": {
+    "ExtensionUpdate": true,
     "ExtensionSettings": {
       "contra@ltdmk": {
         "installation_mode": "force_installed",

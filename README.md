@@ -41,6 +41,9 @@ I created a script that automatically installs everything for you, but you can a
     
 - `policies.ExtensionSettings[<addon_id>].install_url = "https://addons.mozilla.org/firefox/downloads/latest/contra-blocker/latest.xpi"`  
     This is the part that auto-downloads the latest contra. release.
+
+- `policies.ExtensionUpdate = true`
+    Keeps Firefox extension auto-updates enabled under enterprise policy.
     
 - `policies.ExtensionSettings[<addon_id>].private_browsing = true`  
     Enables contra. in private windows by default.  
@@ -50,17 +53,12 @@ I created a script that automatically installs everything for you, but you can a
 </details>
 
 ⚠️ **IMPORTANT:** you have to run the policy installation script as admin/sudo. In case of contra., a custom policy is the only way to make the addon impossible to bypass. I provided the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to verify the safety.
-### Policy install
-Run this script as admin, then reopen all Firefox windows. After that, go to `about:policies` and confirm the installation.
+### Policy toggle
+Run this script as admin. It installs the policy when Contra is not installed, and uninstalls it when Contra is already installed. After installing, reopen all Firefox windows, then go to `about:policies` and confirm the installation.
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/install-policy.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/policy.sh | sudo bash
 ```
-### Uninstall
-The script is intended to be emergency-only, be really conscious when running it.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/uninstall-policy.sh | sudo bash
-```
+The legacy `scripts/install-policy.sh` and `scripts/uninstall-policy.sh` entry points still work for explicit installs/uninstalls. `scripts/policy.sh install` and `scripts/policy.sh uninstall` are also available when you do not want automatic toggle behavior.
 
 
 ## Troubleshooting
@@ -84,15 +82,17 @@ If Firefox path detection fails:
   ```bash
   sudo bash scripts/install-policy.sh --firefox-path /usr/lib/firefox
   sudo bash scripts/install-policy.sh --firefox-path /Applications/Firefox.app
+  sudo bash scripts/policy.sh --firefox-path /usr/lib/firefox
   ```
 
-If merge mode fails due missing Perl JSON::PP:
+If policy scripts complain about missing Perl `JSON::PP`:
 - First verify what is missing:
   ```bash
   perl -v
   perl -MJSON::PP -e 'print "JSON::PP OK\n"'
   ```
-- Install Perl + JSON::PP:
+- When the toggle chooses uninstall and Perl `JSON::PP` is unavailable, it prompts you to use `python3` fallback, try to install Perl, remove whole backed-up policy files as an emergency fallback, or abort.
+- Install Perl + JSON::PP if you also want merge-mode support in `scripts/install-policy.sh`:
   - Debian/Ubuntu:
     ```bash
     sudo apt update && sudo apt install -y perl
@@ -117,6 +117,7 @@ If merge mode fails due missing Perl JSON::PP:
   ```bash
   sudo bash scripts/install-policy.sh --on-conflict overwrite
   ```
+- If you want a parser-free emergency uninstall and the Firefox policy file contains only Contra-managed entries, back up and remove the whole `policies.json` file instead of editing it in place.
 
 If policy did not apply after running the script:
 - Fully quit Firefox and start it again.

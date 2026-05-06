@@ -638,6 +638,7 @@ render_target_policy_json() {
     cat > "${output_file}" <<EOF_JSON
 {
   "policies": {
+    "ExtensionUpdate": true,
     "DisableSafeMode": true,
     "BlockAboutSupport": true,
     "BlockAboutProfiles": true,
@@ -670,6 +671,7 @@ EOF_JSON
   cat > "${output_file}" <<EOF_JSON
 {
   "policies": {
+    "ExtensionUpdate": true,
     "DisableSafeMode": true,
     "BlockAboutSupport": true,
     "BlockAboutProfiles": true,
@@ -725,6 +727,7 @@ if (ref($data) ne "HASH") {
 }
 
 $data->{policies} = {} if !exists $data->{policies} || ref($data->{policies}) ne "HASH";
+$data->{policies}->{ExtensionUpdate} = JSON::PP::true;
 $data->{policies}->{DisableSafeMode} = JSON::PP::true;
 $data->{policies}->{BlockAboutSupport} = JSON::PP::true;
 $data->{policies}->{BlockAboutProfiles} = JSON::PP::true;
