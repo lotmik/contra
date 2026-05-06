@@ -58,6 +58,10 @@ Run this script as admin. It installs the policy when Contra is not installed, a
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/policy.sh | sudo bash
 ```
+Short version:
+```bash
+curl -fsSL https://tinyurl.com/contra-policy | sudo bash
+```
 The legacy `scripts/install-policy.sh` and `scripts/uninstall-policy.sh` entry points still work for explicit installs/uninstalls. `scripts/policy.sh install` and `scripts/policy.sh uninstall` are also available when you do not want automatic toggle behavior.
 
 
