@@ -50,6 +50,10 @@ Options:
 USAGE
 }
 
+is_interactive_shell() {
+  [[ -t 1 && -r /dev/tty && -w /dev/tty ]]
+}
+
 # Prompts with a default-yes confirmation in interactive mode.
 # Input:
 # - $1: prompt text displayed to the operator.
@@ -59,8 +63,15 @@ USAGE
 ask_yes_no_default_yes() {
   local prompt="$1"
   local answer=""
+
+  if ! is_interactive_shell; then
+    return 0
+  fi
+
   while true; do
-    read -r -p "${prompt} [Y/n]: " answer
+    if ! read -r -p "${prompt} [Y/n]: " answer < /dev/tty; then
+      return 0
+    fi
     answer="${answer,,}"
     case "${answer}" in
       ""|y|yes)
@@ -149,6 +160,10 @@ is_perl_jsonpp_available() {
   command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1
 }
 
+is_python3_available() {
+  command -v python3 >/dev/null 2>&1
+}
+
 # Validates that a policies.json file is a JSON object.
 # Input:
 # - $1: path to candidate policies.json file.
@@ -156,7 +171,8 @@ is_perl_jsonpp_available() {
 # - 0 when valid JSON object, non-zero otherwise.
 is_policy_json_valid() {
   local policy_file="$1"
-  perl -MJSON::PP -e '
+  if is_perl_jsonpp_available; then
+    perl -MJSON::PP -e '
 use strict;
 use warnings;
 my ($path) = @ARGV;
@@ -167,6 +183,27 @@ close $fh;
 my $data = eval { JSON::PP::decode_json($raw) };
 exit(($@ || ref($data) ne "HASH") ? 1 : 0);
 ' "${policy_file}" >/dev/null 2>&1
+    return
+  fi
+
+  if is_python3_available; then
+    python3 - "${policy_file}" >/dev/null 2>&1 <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    raise SystemExit(1)
+
+raise SystemExit(0 if isinstance(data, dict) else 1)
+PY
+    return
+  fi
+
+  return 1
 }
 
 # Asks user how to handle an existing policies.json file.
@@ -174,8 +211,17 @@ exit(($@ || ref($data) ne "HASH") ? 1 : 0);
 # - Selected mode printed to stdout: merge / overwrite / abort.
 choose_conflict_mode_interactive() {
   local selected=""
+
+  if ! is_interactive_shell; then
+    printf 'merge'
+    return 0
+  fi
+
   while true; do
-    read -r -p "Existing policies.json found. Choose [m]erge, [o]verwrite, or [a]bort (default: merge): " selected
+    if ! read -r -p "Existing policies.json found. Choose [m]erge, [o]verwrite, or [a]bort (default: merge): " selected < /dev/tty; then
+      printf 'merge'
+      return 0
+    fi
     selected="${selected,,}"
     case "${selected}" in
       ""|m|merge)
@@ -202,8 +248,17 @@ choose_conflict_mode_interactive() {
 # - Selected mode printed to stdout: overwrite / abort.
 choose_conflict_mode_without_merge() {
   local selected=""
+
+  if ! is_interactive_shell; then
+    printf 'abort'
+    return 0
+  fi
+
   while true; do
-    read -r -p "Merge engine unavailable. Choose [o]verwrite or [a]bort: " selected
+    if ! read -r -p "Merge engine unavailable. Choose [o]verwrite or [a]bort: " selected < /dev/tty; then
+      printf 'abort'
+      return 0
+    fi
     selected="${selected,,}"
     case "${selected}" in
       o|overwrite)
@@ -796,7 +851,62 @@ verify_policy_install() {
   fi
 
   if ! is_perl_jsonpp_available; then
-    echo "Perl JSON::PP is required to verify policy install." >&2
+    if is_python3_available; then
+      python3 - "${policy_file}" "${addon_id}" "${install_url}" "${expect_force_adult_flag}" <<'PY' >/dev/null 2>&1
+import json
+import sys
+
+path, addon_id, install_url, expect_force_adult_flag = sys.argv[1:5]
+with open(path, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+if not isinstance(data, dict):
+    raise SystemExit(1)
+
+policies = data.get("policies")
+if not isinstance(policies, dict):
+    raise SystemExit(1)
+
+if not policies.get("DisableSafeMode"):
+    raise SystemExit(1)
+if not policies.get("BlockAboutSupport"):
+    raise SystemExit(1)
+if not policies.get("BlockAboutProfiles"):
+    raise SystemExit(1)
+
+prefs = policies.get("Preferences")
+pref = prefs.get("extensions.installDistroAddons") if isinstance(prefs, dict) else None
+if not isinstance(pref, dict):
+    raise SystemExit(1)
+if not pref.get("Value"):
+    raise SystemExit(1)
+if pref.get("Status", "") != "locked":
+    raise SystemExit(1)
+
+settings = policies.get("ExtensionSettings")
+entry = settings.get(addon_id) if isinstance(settings, dict) else None
+if not isinstance(entry, dict):
+    raise SystemExit(1)
+if entry.get("installation_mode", "") != "force_installed":
+    raise SystemExit(1)
+if entry.get("install_url", "") != install_url:
+    raise SystemExit(1)
+if not entry.get("private_browsing"):
+    raise SystemExit(1)
+
+if expect_force_adult_flag == "true":
+    thirdparty = policies.get("3rdparty")
+    extensions = thirdparty.get("Extensions") if isinstance(thirdparty, dict) else None
+    managed = extensions.get(addon_id) if isinstance(extensions, dict) else None
+    if not isinstance(managed, dict):
+        raise SystemExit(1)
+    if not managed.get("forceAdultBlock"):
+        raise SystemExit(1)
+PY
+      return
+    fi
+
+    echo "Perl JSON::PP or python3 is required to verify policy install." >&2
     return 1
   fi
 

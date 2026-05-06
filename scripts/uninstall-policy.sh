@@ -359,7 +359,7 @@ json_edit_engine() {
 }
 
 is_interactive_shell() {
-  [[ -r /dev/tty && -w /dev/tty ]]
+  [[ -t 1 && -r /dev/tty && -w /dev/tty ]]
 }
 
 run_linux_perl_install() {
