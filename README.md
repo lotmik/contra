@@ -14,7 +14,7 @@ I built this addon for my personal needs because I could not find such a hardcor
 - 📜 **Blocklist** and **whitelist**
 - ✍️ **Phrase mode**: allows you to set a phrase and only unblocks if you copy it letter by letter. The phrase has to be something profound, ideally an oath, so that when you type it, you make a conscious decision to leave the flow state.
 - ⏲️ **Timer mode**: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
-- 🔞 **Adult mode**: blocks all explicit websites from two constantly updated lists ([this](https://github.com/Bon-Appetit/porn-domains) and [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
+- 🔞 **Adult mode**: blocks all explicit websites from a constantly updated list ([Anti-Porn-HOSTS-File](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
 ## Install
 Although you can use the addon separately, it is recommended to cut all bypass methods in advance by getting a custom Firefox Entreprise Policy. It basically enforces some rules for Firefox like force install of the addon, which you cannot change easily.
 
@@ -49,7 +49,7 @@ I created a script that automatically installs everything for you, but you can a
     Enables contra. in private windows by default.  
     
 - `policies.3rdparty.Extensions[<addon_id>].forceAdultBlock = true` (optional)
-    This enables the adult mode. If it is enabled during config, the addon checks if a site you are about to open is in [this](https://github.com/Bon-Appetit/porn-domains) or [this](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File) list of explicit websites. If yes, contra. closes the tab before the website even loads. (Out of contra's 4,3MB, 99% is used up by these pre-packed lists.)
+    This enables the adult mode. If it is enabled during config, the addon checks if a site you are about to open is in the [Anti-Porn-HOSTS-File list](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File). If yes, contra. closes the tab before the website even loads.
 </details>
 
 ⚠️ **IMPORTANT:** you have to run the policy installation script as admin/sudo. In case of contra., a custom policy is the only way to make the addon impossible to bypass. I provided the script with comments, and if you are not a technical person, you can check the file yourself on [VirusTotal](https://virustotal.com) or paste the script content to an LLM and ask it to verify the safety.

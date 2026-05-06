@@ -63,11 +63,11 @@ const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
 const AGGRESSIVE_TAMPER_INTERVAL_MS = 100;
 const MAX_RECOVERABLE_CLOSED_TABS = 200;
 const ADULT_DOMAIN_LIST_PATH = "data/adult-domains.txt";
+const ADULT_DOMAIN_ALLOWLIST = new Set(["tally.so"]);
 const ADULT_LIST_REFRESH_INTERVAL_MINUTES = 15;
 const ADULT_LIST_FETCH_TIMEOUT_MS = 15000;
-const BON_APPETIT_REPO_CONTENTS_URL = "https://api.github.com/repos/Bon-Appetit/porn-domains/contents";
 const ANTI_PORN_HOSTS_URL =
-  "https://raw.githubusercontent.com/4skinSkywalker/Anti-Porn-HOSTS-File/main/HOSTS.txt";
+  "https://raw.githubusercontent.com/4skinSkywalker/Anti-Porn-HOSTS-File/master/HOSTS.txt";
 const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
 
 function sanitizeList(value) {
@@ -235,6 +235,28 @@ function sanitizeAdultDomain(domain) {
   return normalized;
 }
 
+function isAdultUrlAllowlisted(url) {
+  if (adultContentForcedByPolicy) {
+    return false;
+  }
+
+  let candidate = extractHostnameFromUrl(url);
+  while (candidate.length > 0) {
+    if (ADULT_DOMAIN_ALLOWLIST.has(candidate)) {
+      return true;
+    }
+
+    const separatorIndex = candidate.indexOf(".");
+    if (separatorIndex < 0) {
+      break;
+    }
+
+    candidate = candidate.slice(separatorIndex + 1);
+  }
+
+  return false;
+}
+
 function parseAdultDomainSetFromText(rawText) {
   const domains = new Set();
   if (typeof rawText !== "string" || rawText.length === 0) {
@@ -303,25 +325,6 @@ async function fetchTextWithTimeout(url, timeoutMs = ADULT_LIST_FETCH_TIMEOUT_MS
   }
 }
 
-async function resolveBonAppetitBlocklistUrl() {
-  const raw = await fetchTextWithTimeout(BON_APPETIT_REPO_CONTENTS_URL);
-  const entries = JSON.parse(raw);
-  if (!Array.isArray(entries)) {
-    throw new Error("BON_APPETIT_CONTENTS_INVALID");
-  }
-
-  const blockEntry = entries.find((entry) => {
-    const name = typeof entry?.name === "string" ? entry.name : "";
-    return /^block\..+\.txt$/i.test(name) && typeof entry?.download_url === "string";
-  });
-
-  if (!blockEntry?.download_url) {
-    throw new Error("BON_APPETIT_BLOCK_FILE_NOT_FOUND");
-  }
-
-  return blockEntry.download_url;
-}
-
 async function loadBundledAdultDomainSet() {
   const rawText = await fetchTextWithTimeout(browser.runtime.getURL(ADULT_DOMAIN_LIST_PATH));
   adultDomainSet = parseAdultDomainSetFromText(rawText);
@@ -330,16 +333,8 @@ async function loadBundledAdultDomainSet() {
 
 async function refreshAdultDomainSetFromRemote() {
   try {
-    const bonAppetitUrl = await resolveBonAppetitBlocklistUrl();
-    const [bonAppetitText, hostsText] = await Promise.all([
-      fetchTextWithTimeout(bonAppetitUrl),
-      fetchTextWithTimeout(ANTI_PORN_HOSTS_URL)
-    ]);
-
-    const nextSet = parseAdultDomainSetFromText(bonAppetitText);
-    for (const domain of parseAdultDomainSetFromHostsText(hostsText)) {
-      nextSet.add(domain);
-    }
+    const hostsText = await fetchTextWithTimeout(ANTI_PORN_HOSTS_URL);
+    const nextSet = parseAdultDomainSetFromHostsText(hostsText);
 
     if (nextSet.size > 0) {
       adultDomainSet = nextSet;
@@ -386,6 +381,10 @@ async function setupAdultListRefreshAlarm() {
 
 function matchesAdultDomainRule(url) {
   if (!isAdultBlockingEnabled() || !(adultDomainSet instanceof Set) || adultDomainSet.size === 0) {
+    return false;
+  }
+
+  if (isAdultUrlAllowlisted(url)) {
     return false;
   }
 
