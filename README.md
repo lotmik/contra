@@ -62,7 +62,19 @@ Short version:
 ```bash
 curl -fsSL https://tinyurl.com/contra-policy | sudo bash
 ```
-The legacy `scripts/install-policy.sh` and `scripts/uninstall-policy.sh` entry points still work for explicit installs/uninstalls. `scripts/policy.sh install` and `scripts/policy.sh uninstall` are also available when you do not want automatic toggle behavior.
+Use `scripts/policy.sh install` or `scripts/policy.sh uninstall` when you do not want automatic toggle behavior. The policy script is self-contained; it does not fetch archived install/uninstall helper scripts.
+
+For explicit actions from the direct URL:
+```bash
+curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/policy.sh | sudo bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/policy.sh | sudo bash -s -- uninstall
+```
+
+From a cloned repo:
+```bash
+sudo bash scripts/policy.sh install
+sudo bash scripts/policy.sh uninstall
+```
 
 
 ## Troubleshooting
@@ -84,42 +96,41 @@ If Firefox path detection fails:
   ```
 - Example usage:
   ```bash
-  sudo bash scripts/install-policy.sh --firefox-path /usr/lib/firefox
-  sudo bash scripts/install-policy.sh --firefox-path /Applications/Firefox.app
   sudo bash scripts/policy.sh --firefox-path /usr/lib/firefox
+  sudo bash scripts/policy.sh --firefox-path /Applications/Firefox.app
   ```
 
-If policy scripts complain about missing Perl `JSON::PP`:
+If the policy script complains about a missing JSON editor:
 - First verify what is missing:
   ```bash
-  perl -v
-  perl -MJSON::PP -e 'print "JSON::PP OK\n"'
+  python3 --version
   ```
-- When the toggle chooses uninstall and Perl `JSON::PP` is unavailable, it prompts you to use `python3` fallback, try to install Perl, remove whole backed-up policy files as an emergency fallback, or abort.
-- Install Perl + JSON::PP if you also want merge-mode support in `scripts/install-policy.sh`:
+- The current policy script does not depend on Perl `JSON::PP`. It uses `python3` only when it needs to safely merge with or edit an existing `policies.json`.
+- During uninstall, if `python3` is missing, the script prompts you to install Python 3 and continue, remove whole backed-up policy files as an emergency fallback, or abort.
+- Install Python 3 if you want safe merge/uninstall support:
   - Debian/Ubuntu:
     ```bash
-    sudo apt update && sudo apt install -y perl
+    sudo apt update && sudo apt install -y python3
     ```
   - Fedora/RHEL/CentOS:
     ```bash
-    sudo dnf install -y perl
+    sudo dnf install -y python3
     ```
   - Arch:
     ```bash
-    sudo pacman -S --needed perl
+    sudo pacman -S --needed python
     ```
   - macOS (Homebrew):
     ```bash
-    brew install perl
+    brew install python
     ```
 - Retry merge mode:
   ```bash
-  sudo bash scripts/install-policy.sh --on-conflict merge
+  sudo bash scripts/policy.sh install --on-conflict merge
   ```
 - If you want to bypass merge requirements, use overwrite mode:
   ```bash
-  sudo bash scripts/install-policy.sh --on-conflict overwrite
+  sudo bash scripts/policy.sh install --on-conflict overwrite
   ```
 - If you want a parser-free emergency uninstall and the Firefox policy file contains only Contra-managed entries, back up and remove the whole `policies.json` file instead of editing it in place.
 
@@ -128,5 +139,5 @@ If policy did not apply after running the script:
 - Open `about:policies` and check that Contra policies are shown as active.
 - Re-run with an explicit path:
   ```bash
-  sudo bash scripts/install-policy.sh --firefox-path /path/to/firefox-or-app
+  sudo bash scripts/policy.sh --firefox-path /path/to/firefox-or-app
   ```
