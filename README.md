@@ -12,7 +12,7 @@ contra.
 I built this addon for my personal needs because I could not find such a hardcore blocker like Cold Turkey (amazing product btw), but for Linux and for free. I also noticed that 99% of my distractions live in the browser, so controlling Firefox became essential for better and longer [deep work](https://calnewport.com/deep-work-rules-for-focused-success-in-a-distracted-world/) sessions.
 ## Features
 - 📜 **Blocklist** and **whitelist**
-- ✍️ **Phrase mode**: allows you to set a phrase and only unblocks if you copy it letter by letter. The phrase has to be something profound, ideally an oath, so that when you type it, you make a conscious decision to leave the flow state.
+- ✍️ **Phrase mode**: allows you to set a phrase and only unblocks if you copy it letter by letter. After typing the phrase, you can either stop blocking or take a 2 minute break. The phrase has to be something profound, ideally an oath, so that when you type it, you make a conscious decision to leave the flow state.
 - ⏲️ **Timer mode**: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
 - 🔞 **Adult mode**: blocks all explicit websites from a constantly updated list ([Anti-Porn-HOSTS-File](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
 ## Install

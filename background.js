@@ -1116,11 +1116,7 @@ async function startPausePositiveSession(payload = {}) {
     return { ok: false, error: "NOT_BLOCKING" };
   }
 
-  if (unlockMode !== "timer") {
-    return { ok: false, error: "PAUSE_POSITIVE_TIMER_ONLY" };
-  }
-
-  if (timerExpired) {
+  if (unlockMode === "timer" && timerExpired) {
     return { ok: false, error: "TIMER_ALREADY_EXPIRED" };
   }
 
@@ -1146,10 +1142,6 @@ async function startPausePositiveSession(payload = {}) {
 async function resumePausePositiveSession() {
   if (!isBlocking) {
     return { ok: false, error: "NOT_BLOCKING" };
-  }
-
-  if (unlockMode !== "timer") {
-    return { ok: false, error: "PAUSE_POSITIVE_TIMER_ONLY" };
   }
 
   if (!isPausePositiveActive()) {

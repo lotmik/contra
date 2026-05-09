@@ -74,6 +74,8 @@ const elements = {
   unlockPhraseInput: document.getElementById("unlock-phrase-input"),
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
   unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
+  unlockActionRow: document.getElementById("unlock-action-row"),
+  unlockBreakButton: document.getElementById("unlock-break-btn"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
   settingsDropdown: document.getElementById("settings-dropdown"),
   settingsSummary: document.getElementById("settings-summary"),
@@ -399,9 +401,22 @@ function renderPhraseTypingPreview() {
   updateTypingCaretPosition(caretBoundaryOffset);
 }
 
+function setUnlockActionButtonState(button, { disabled, phraseLocked }) {
+  button.disabled = disabled;
+  button.classList.toggle("is-phrase-locked", disabled && phraseLocked === true);
+}
+
 function setUnlockConfirmButtonState({ disabled, phraseLocked }) {
-  elements.unlockConfirmButton.disabled = disabled;
-  elements.unlockConfirmButton.classList.toggle("is-phrase-locked", disabled && phraseLocked === true);
+  setUnlockActionButtonState(elements.unlockConfirmButton, { disabled, phraseLocked });
+}
+
+function setUnlockBreakButtonState({ visible, disabled, phraseLocked }) {
+  elements.unlockBreakButton.hidden = !visible;
+  elements.unlockActionRow.classList.toggle("has-secondary-action", visible);
+  setUnlockActionButtonState(elements.unlockBreakButton, {
+    disabled: !visible || disabled,
+    phraseLocked: visible && phraseLocked
+  });
 }
 
 function getUrlListValidationError(text = elements.urlList.value) {
@@ -984,19 +999,21 @@ function updateLockedChallenge() {
   const isTimerMode = state.unlockMode === "timer";
   const phraseInput = normalizePhrase(elements.unlockPhraseInput.value);
   const expectedPhrase = normalizePhrase(state.unlockPhrase);
+  const pauseRemaining = getPauseRemainingMs();
+
+  if (pauseRemaining > 0) {
+    setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
+    setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
+    setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
+    elements.unlockConfirmButton.textContent = "Resume";
+    updateStatus(`Pause active: ${formatDuration(pauseRemaining)}`);
+    return;
+  }
 
   if (isTimerMode) {
-    const pauseRemaining = getPauseRemainingMs();
-    if (pauseRemaining > 0) {
-      setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
-      setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
-      elements.unlockConfirmButton.textContent = "Resume";
-      updateStatus(`Pause active: ${formatDuration(pauseRemaining)}`);
-      return;
-    }
-
     if (state.timerExpired) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
+      setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
       setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
       elements.unlockConfirmButton.textContent = "Confirm";
       updateStatus("Timer complete");
@@ -1013,12 +1030,14 @@ function updateLockedChallenge() {
         disabled: false
       });
       const phraseMatches = phraseInput === expectedPhrase;
+      setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
       setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
       elements.unlockConfirmButton.textContent = "Pause 2 min";
       return;
     }
 
     setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
+    setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
     setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
     elements.unlockConfirmButton.textContent = "Wait for timer";
     return;
@@ -1026,8 +1045,13 @@ function updateLockedChallenge() {
 
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
   const phraseMatches = phraseInput === expectedPhrase;
+  setUnlockBreakButtonState({
+    visible: true,
+    disabled: !phraseMatches,
+    phraseLocked: !phraseMatches
+  });
   setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
-  elements.unlockConfirmButton.textContent = "Confirm";
+  elements.unlockConfirmButton.textContent = "Stop";
   updateStatus("Phrase required");
 }
 
@@ -1040,12 +1064,19 @@ function stopTimerTick() {
 
 function startTimerTick() {
   stopTimerTick();
-  if (!state.isBlocking || state.unlockMode !== "timer") {
+  if (!state.isBlocking) {
+    return;
+  }
+
+  if (state.unlockMode !== "timer" && getPauseRemainingMs() <= 0) {
     return;
   }
 
   timerTickId = window.setInterval(() => {
     updateLockedChallenge();
+    if (state.unlockMode !== "timer" && getPauseRemainingMs() <= 0) {
+      stopTimerTick();
+    }
   }, 1000);
 }
 
@@ -1073,6 +1104,7 @@ function renderUi() {
   setChallengeVisibility(false);
   elements.unlockPhraseInput.value = "";
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
+  setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
   setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
   elements.unlockConfirmButton.textContent = "Confirm";
   updateStatus("");
@@ -1213,7 +1245,7 @@ async function resumePausePositive() {
     });
 
     if (!response || response.ok !== true) {
-      updateStatus("Could not resume timer");
+      updateStatus("Could not resume blocking");
       return;
     }
 
@@ -1221,7 +1253,7 @@ async function resumePausePositive() {
     await saveStateToStorage();
     renderUi();
   } catch (error) {
-    updateStatus("Could not resume timer");
+    updateStatus("Could not resume blocking");
     console.error("RESUME_PAUSE_POSITIVE failed", error);
   }
 }
@@ -1259,12 +1291,12 @@ async function handleUnlockConfirmClick() {
     return;
   }
 
-  if (state.unlockMode === "timer") {
-    if (getPauseRemainingMs() > 0) {
-      await resumePausePositive();
-      return;
-    }
+  if (getPauseRemainingMs() > 0) {
+    await resumePausePositive();
+    return;
+  }
 
+  if (state.unlockMode === "timer") {
     if (state.timerExpired) {
       await stopBlocking();
       return;
@@ -1287,6 +1319,14 @@ async function handleUnlockConfirmClick() {
   }
 
   await stopBlocking();
+}
+
+async function handleUnlockBreakClick() {
+  if (!state.isBlocking || state.unlockMode !== "phrase") {
+    return;
+  }
+
+  await requestPausePositive();
 }
 
 function handleModeChange() {
@@ -1664,6 +1704,9 @@ async function initializePopup() {
   });
   elements.unlockConfirmButton.addEventListener("click", () => {
     void handleUnlockConfirmClick();
+  });
+  elements.unlockBreakButton.addEventListener("click", () => {
+    void handleUnlockBreakClick();
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.urlList.addEventListener("input", handleUrlListInput);
