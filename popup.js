@@ -9,6 +9,7 @@ const TIMER_END_TIME_WARNING_TEXT = "Timer exceeds 4 hours. Proceed if desired";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
 const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
+const UNLOCK_PHRASE_SETTING_MIN_HEIGHT = 28;
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
 const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
 const STORAGE_KEYS = [
@@ -63,6 +64,7 @@ let urlListSyncTimeoutId = null;
 let pendingUrlListSyncDraft = null;
 let urlListValidationTimeoutId = null;
 let isSiteAddFormVisible = false;
+let skipNextUnlockPhraseSettingBlurSave = false;
 
 const elements = {
   body: document.body,
@@ -259,8 +261,36 @@ function autoResizeUnlockPhraseSettingField() {
     return;
   }
 
+  if (field.getClientRects().length === 0) {
+    field.style.height = "";
+    return;
+  }
+
+  const currentValue = field.value;
+  const selectionStart = field.selectionStart;
+  const selectionEnd = field.selectionEnd;
+  const selectionDirection = field.selectionDirection;
   field.style.height = "auto";
-  field.style.height = `${Math.max(field.scrollHeight, 52)}px`;
+  const currentContentHeight = field.scrollHeight;
+
+  field.value = DEFAULT_UNLOCK_PHRASE;
+  field.style.height = "auto";
+  const defaultPhraseHeight = field.scrollHeight;
+
+  field.value = currentValue;
+  if (document.activeElement === field) {
+    field.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+  }
+  const targetHeight = Math.max(
+    UNLOCK_PHRASE_SETTING_MIN_HEIGHT,
+    Math.min(currentContentHeight, defaultPhraseHeight)
+  );
+  field.style.height = `${targetHeight}px`;
+  field.style.overflowY = currentContentHeight > defaultPhraseHeight ? "auto" : "hidden";
+}
+
+function scheduleUnlockPhraseSettingResize() {
+  window.requestAnimationFrame(autoResizeUnlockPhraseSettingField);
 }
 
 function getReferencePhraseForTyping() {
@@ -1052,7 +1082,9 @@ function updateTimerSettingsVisibility() {
   refreshTimerEndTimeWarning();
 
   if (elements.unlockPhraseSettingDropdown) {
-    elements.unlockPhraseSettingDropdown.open = state.unlockMode === "phrase";
+    if (state.unlockMode === "phrase") {
+      elements.unlockPhraseSettingDropdown.open = true;
+    }
   }
 
   if (elements.unlockPhraseSettingSummary) {
@@ -1294,7 +1326,7 @@ function updateLockedChallenge() {
       const phraseMatches = phraseInput === expectedPhrase;
       setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
       setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
-      elements.unlockConfirmButton.textContent = "Unlock early";
+      elements.unlockConfirmButton.textContent = "Pause 2 min";
       return;
     }
 
@@ -1952,12 +1984,65 @@ function handleUnlockPhraseSettingTyping() {
   autoResizeUnlockPhraseSettingField();
 }
 
-function handleUnlockPhraseSettingDropdownToggle() {
-  if (!elements.unlockPhraseSettingDropdown?.open) {
+function handleUnlockPhraseSettingKeydown(event) {
+  if (event.key !== "Enter" || event.isComposing) {
     return;
   }
 
-  autoResizeUnlockPhraseSettingField();
+  event.preventDefault();
+  handleUnlockPhraseSettingInput();
+  skipNextUnlockPhraseSettingBlurSave = true;
+  elements.unlockPhraseSettingInput.blur();
+}
+
+function handleUnlockPhraseSettingBlur() {
+  if (skipNextUnlockPhraseSettingBlurSave) {
+    skipNextUnlockPhraseSettingBlurSave = false;
+    return;
+  }
+
+  handleUnlockPhraseSettingInput();
+}
+
+function handleUnlockPhraseSettingDropdownToggle() {
+  if (!elements.unlockPhraseSettingDropdown?.open) {
+    autoResizeUnlockPhraseSettingField();
+    return;
+  }
+
+  scheduleUnlockPhraseSettingResize();
+}
+
+function isEditableTarget(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
+function isSettingsShortcutKey(event) {
+  return event.key === "s" || event.key === "S" || event.key === "ы" || event.key === "Ы";
+}
+
+function handleGlobalKeydown(event) {
+  if (!elements.settingsDropdown || elements.settingsDropdown.hidden || elements.settingsDropdown.hasAttribute("inert")) {
+    return;
+  }
+
+  if (!isSettingsShortcutKey(event) || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+
+  if (isEditableTarget(event.target) || isEditableTarget(document.activeElement)) {
+    return;
+  }
+
+  event.preventDefault();
+  elements.settingsDropdown.open = !elements.settingsDropdown.open;
+  if (!elements.settingsDropdown.open && document.activeElement === elements.settingsSummary) {
+    elements.settingsSummary.blur();
+  }
 }
 
 function handlePhraseInput() {
@@ -2091,8 +2176,9 @@ async function initializePopup() {
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
   elements.unlockModeSegment?.addEventListener("click", handleUnlockModeSegmentClick);
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
+  elements.unlockPhraseSettingInput.addEventListener("keydown", handleUnlockPhraseSettingKeydown);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
-  elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingInput);
+  elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingBlur);
   elements.unlockPhraseSettingDropdown?.addEventListener("toggle", handleUnlockPhraseSettingDropdownToggle);
   elements.timerEndTimeInput.addEventListener("input", handleTimerEndTimeInput);
   elements.timerEndTimeInput.addEventListener("change", handleTimerEndTimeChange);
@@ -2108,6 +2194,7 @@ async function initializePopup() {
   elements.unlockPhraseInput.addEventListener("keyup", handlePhraseCursorMove);
   elements.unlockPhraseInput.addEventListener("click", handlePhraseCursorMove);
   elements.unlockPhraseInput.addEventListener("select", handlePhraseCursorMove);
+  window.addEventListener("keydown", handleGlobalKeydown);
   window.addEventListener("resize", renderPhraseTypingPreview);
   window.addEventListener("beforeunload", () => {
     syncUrlListFromSiteRows();
