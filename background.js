@@ -16,6 +16,10 @@ let aggressiveTamperIntervalId = null;
 let adultDomainSet = null;
 let adultDomainLoadPromise = null;
 let adultContentForcedByPolicy = false;
+let adultListLastRefreshAt = 0;
+let adultListLastRefreshStatus = "not_started";
+let adultListDomainCount = 0;
+let adultListSource = "none";
 
 const TAMPER_PAGES = [
   "about:addons",
@@ -69,6 +73,46 @@ const ADULT_LIST_FETCH_TIMEOUT_MS = 15000;
 const ANTI_PORN_HOSTS_URL =
   "https://raw.githubusercontent.com/4skinSkywalker/Anti-Porn-HOSTS-File/master/HOSTS.txt";
 const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
+const SETTINGS_STORAGE_KEYS = [
+  "blockList",
+  "whiteList",
+  "adultContentBlockingEnabled",
+  "mode",
+  "unlockMode",
+  "timerMinutes",
+  "unlockPhrase",
+  "pausePositiveEnabled"
+];
+
+async function persistAdultListRefreshState() {
+  try {
+    await browser.storage.local.set({
+      adultListLastRefreshAt,
+      adultListLastRefreshStatus,
+      adultListDomainCount,
+      adultListSource
+    });
+  } catch (error) {
+    console.error("Failed to persist adult blocklist refresh state", error);
+  }
+}
+
+async function recordAdultListRefreshState({ source, status, count }) {
+  adultListLastRefreshAt = Date.now();
+  adultListLastRefreshStatus = status;
+  adultListDomainCount = Number.isInteger(count) ? count : 0;
+  adultListSource = source;
+  await persistAdultListRefreshState();
+}
+
+function getAdultListRefreshState() {
+  return {
+    adultListLastRefreshAt,
+    adultListLastRefreshStatus,
+    adultListDomainCount,
+    adultListSource
+  };
+}
 
 function sanitizeList(value) {
   if (!Array.isArray(value)) {
@@ -328,6 +372,11 @@ async function fetchTextWithTimeout(url, timeoutMs = ADULT_LIST_FETCH_TIMEOUT_MS
 async function loadBundledAdultDomainSet() {
   const rawText = await fetchTextWithTimeout(browser.runtime.getURL(ADULT_DOMAIN_LIST_PATH));
   adultDomainSet = parseAdultDomainSetFromText(rawText);
+  await recordAdultListRefreshState({
+    source: "bundled",
+    status: adultDomainSet.size > 0 ? "bundled_loaded" : "bundled_empty",
+    count: adultDomainSet.size
+  });
   return adultDomainSet;
 }
 
@@ -338,9 +387,24 @@ async function refreshAdultDomainSetFromRemote() {
 
     if (nextSet.size > 0) {
       adultDomainSet = nextSet;
+      await recordAdultListRefreshState({
+        source: "remote",
+        status: "remote_loaded",
+        count: nextSet.size
+      });
       return nextSet;
     }
+    await recordAdultListRefreshState({
+      source: adultListSource,
+      status: "remote_empty",
+      count: adultDomainSet instanceof Set ? adultDomainSet.size : 0
+    });
   } catch (error) {
+    await recordAdultListRefreshState({
+      source: adultListSource,
+      status: "remote_error",
+      count: adultDomainSet instanceof Set ? adultDomainSet.size : 0
+    });
     console.error("Failed to refresh adult domain blocklist from remote", error);
   }
 
@@ -361,6 +425,11 @@ async function ensureAdultDomainSetLoaded() {
       await loadBundledAdultDomainSet();
     } catch (error) {
       adultDomainSet = new Set();
+      await recordAdultListRefreshState({
+        source: "bundled",
+        status: "bundled_error",
+        count: 0
+      });
       console.error("Failed to load adult domain blocklist", error);
     } finally {
       adultDomainLoadPromise = null;
@@ -581,6 +650,10 @@ function shouldEnforceBlocking() {
   return isBlocking && !isPausePositiveActive() && !isTemporarilyDisabledForTest();
 }
 
+function shouldSweepOpenTabs() {
+  return shouldEnforceBlocking() || isAdultBlockingEnabled();
+}
+
 function canStopBlocking() {
   if (unlockMode !== "timer") {
     return true;
@@ -781,6 +854,11 @@ async function restoreRecoverableClosedTabs() {
 }
 
 async function checkAndCloseTab(tabId, url, context = {}) {
+  if (matchesAdultDomainRule(url)) {
+    await closeTabWithSurvivor(tabId, url, context);
+    return;
+  }
+
   if (!shouldEnforceBlocking()) {
     return;
   }
@@ -898,6 +976,21 @@ function applySettingsPayload(payload = {}) {
   if (adultContentForcedByPolicy) {
     adultContentBlockingEnabled = true;
   }
+}
+
+function getSettingsPayloadFromStorageChanges(changes = {}) {
+  const payload = {};
+  for (const key of SETTINGS_STORAGE_KEYS) {
+    if (key in changes) {
+      payload[key] = changes[key].newValue;
+    }
+  }
+
+  return payload;
+}
+
+function hasPayloadKeys(payload) {
+  return Object.keys(payload).length > 0;
 }
 
 async function loadManagedPolicy() {
@@ -1235,6 +1328,35 @@ async function reconcileTimers() {
   }
 }
 
+async function handleSettingsStorageChanged(changes, areaName) {
+  if (areaName === "managed") {
+    if (!MANAGED_POLICY_FORCE_ADULT_KEYS.some((key) => key in changes)) {
+      return;
+    }
+
+    await loadManagedPolicy();
+  } else if (areaName === "local") {
+    const payload = getSettingsPayloadFromStorageChanges(changes);
+    if (!hasPayloadKeys(payload)) {
+      return;
+    }
+
+    applySettingsPayload(payload);
+  } else {
+    return;
+  }
+
+  if (isAdultBlockingEnabled()) {
+    await ensureAdultDomainSetLoaded();
+  }
+
+  reconcileAggressiveTamperMonitor();
+  if (shouldSweepOpenTabs()) {
+    await enforceAllOpenTabs();
+  }
+  await updateActionBadge();
+}
+
 browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const url = changeInfo.url || tab.url;
   void aggressivelyCloseTamperTab(tabId, url, tab);
@@ -1326,6 +1448,10 @@ if (browser?.runtime?.onStartup?.addListener) {
   });
 }
 
+browser.storage.onChanged.addListener((changes, areaName) => {
+  void handleSettingsStorageChanged(changes, areaName);
+});
+
 browser.runtime.onMessage.addListener((message = {}) => {
   const type = message.type;
   const payload = message.payload || {};
@@ -1374,12 +1500,21 @@ browser.runtime.onMessage.addListener((message = {}) => {
       .then(() => persistState())
       .then(() => {
         reconcileAggressiveTamperMonitor();
-        if (shouldEnforceBlocking()) {
+        if (shouldSweepOpenTabs()) {
           return enforceAllOpenTabs();
         }
         return undefined;
       })
       .then(() => ({ ok: true }));
+  }
+
+  if (type === "REFRESH_ADULT_LIST") {
+    return refreshAdultDomainSetFromRemote()
+      .then(() => ({ ok: true, ...getAdultListRefreshState() }));
+  }
+
+  if (type === "GET_ADULT_LIST_STATUS") {
+    return Promise.resolve({ ok: true, ...getAdultListRefreshState() });
   }
 
   return Promise.resolve({ ok: false, error: "UNKNOWN_MESSAGE_TYPE" });
@@ -1401,7 +1536,7 @@ void loadState()
     await reconcileTimers();
     await clearStaleActionBadges();
     reconcileAggressiveTamperMonitor();
-    if (shouldEnforceBlocking()) {
+    if (shouldSweepOpenTabs()) {
       await aggressivelyCloseTamperTabsByQuery();
       await enforceAllOpenTabs();
     }

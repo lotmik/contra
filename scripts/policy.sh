@@ -72,6 +72,56 @@ ask_yes_no_default_yes() {
   done
 }
 
+print_install_overview() {
+  local policy_file
+
+  cat <<'OVERVIEW'
+                                 __
+                                /  |
+  _______   ______   _______   _$$ |_     ______   ______
+ /       | /      \ /       \ / $$   |   /      \ /      \
+/$$$$$$$/ /$$$$$$  |$$$$$$$  |$$$$$$/   /$$$$$$  |$$$$$$  |
+$$ |      $$ |  $$ |$$ |  $$ |  $$ | __ $$ |  $$/ /    $$ |
+$$ \_____ $$ \__$$ |$$ |  $$ |  $$ |/  |$$ |     /$$$$$$$ | __
+$$       |$$    $$/ $$ |  $$ |  $$  $$/ $$ |     $$    $$ |/  |
+ $$$$$$$/  $$$$$$/  $$/   $$/    $$$$/  $$/       $$$$$$$/ $$/
+
+This setup uses Firefox enterprise policies because without them,
+contra. can be removed, disabled, or bypassed easily.
+
+OVERVIEW
+
+  printf 'Add-on source:\n'
+  printf '  %s\n\n' "${install_url}"
+
+  printf 'Firefox policy files found:\n'
+  for policy_file in "${policy_files[@]}"; do
+    printf '  %s\n' "${policy_file}"
+  done
+
+  cat <<'OVERVIEW'
+
+This will:
+  - keep contra. installed
+  - make contra. work in private windows
+  - keep contra. updated
+  - make Firefox's safe/troubleshooting mode unavailable
+  - hide Firefox pages that can be used to switch profiles or work around contra.
+  - keep Firefox's managed add-ons setting locked on
+
+OVERVIEW
+}
+
+confirm_install_overview() {
+  print_install_overview
+  if ask_yes_no_default_yes "Continue"; then
+    return 0
+  fi
+
+  echo "Install aborted."
+  return 1
+}
+
 choose_conflict_mode_interactive() {
   local selected=""
 
@@ -619,8 +669,9 @@ install_policy_file() {
         if require_python3 && policy_json_valid "${policy_file}"; then
           policy_json_tool merge "${policy_file}" "${final_policy}" "${addon_id}" "${install_url}" "${force_adult_block}" "${force_adult_block_explicit}"
         else
-          echo "Cannot merge ${policy_file}; writing strict Contra policy template instead." >&2
-          render_target_policy_json_shell "${final_policy}"
+          echo "Cannot safely merge ${policy_file}; leaving it unchanged." >&2
+          echo "Fix the JSON, install python3, or rerun with --on-conflict overwrite if replacing the file is intended." >&2
+          return 1
         fi
         ;;
     esac
@@ -647,9 +698,9 @@ uninstall_policy_file() {
   backup_policy_file "${policy_file}" "${policy_index}"
 
   if ! policy_json_valid "${policy_file}"; then
-    echo "Invalid or unparsable JSON in ${policy_file}; removing whole file after backup." >&2
-    rm -f "${policy_file}"
-    return 0
+    echo "Invalid or unparsable JSON in ${policy_file}; leaving it unchanged." >&2
+    echo "Fix the JSON first, or remove the policy file manually after reviewing the backup." >&2
+    return 1
   fi
 
   remove_status="$(policy_json_tool remove "${policy_file}" "${updated_policy}" "${addon_id}")"
@@ -734,6 +785,8 @@ install_policy() {
   local failures=0
   local installed=0
   local policy_file
+
+  confirm_install_overview || return 1
 
   if [[ "${force_adult_block_explicit}" == false ]]; then
     if ask_yes_no_default_yes "Enable forced adult blocking"; then
@@ -866,11 +919,6 @@ fi
 
 case "${action}" in
   install)
-    if [[ "${requested_action}" == "toggle" ]]; then
-      echo "Contra policy not detected; installing."
-    else
-      echo "Installing Contra policy."
-    fi
     install_policy
     ;;
   uninstall)
