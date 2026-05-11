@@ -8,6 +8,8 @@
   </head>
   <body>
     <main id="popup-root">
+      <div id="progress-line" aria-hidden="true"></div>
+
       <header>
         <h1 id="header-title">contra.</h1>
       </header>
@@ -23,6 +25,11 @@
 
       <div id="lockable-area">
         <div id="unlock-challenge" aria-hidden="true">
+          <div id="unlock-timer-panel" hidden>
+            <div id="unlock-timer-countdown">00:00</div>
+            <div id="unlock-timer-caption">locked</div>
+          </div>
+
           <label for="unlock-phrase-input">Unlock phrase</label>
           <div id="unlock-typing-surface">
             <input
@@ -47,11 +54,15 @@
         </div>
 
         <details id="settings-dropdown">
-          <summary id="settings-summary" aria-label="Settings" data-label="Settings"></summary>
+          <summary id="settings-summary" aria-label="settings" data-label="settings"></summary>
           <div id="settings-blur-wrap">
             <section id="settings-area" aria-label="Settings">
               <div class="control-group">
                 <label for="mode-select">Mode</label>
+                <div id="mode-segment" class="segmented-control" role="radiogroup" aria-label="Mode">
+                  <button type="button" class="segment-option" data-value="block">Blocklist</button>
+                  <button type="button" class="segment-option" data-value="allow">Allowlist</button>
+                </div>
                 <select id="mode-select" name="mode-select">
                   <option value="block">Blocklist</option>
                   <option value="allow">Whitelist</option>
@@ -59,7 +70,29 @@
               </div>
 
               <div class="control-group">
-                <label for="url-list">URLs (one per line)</label>
+                <label for="url-list">websites</label>
+                <div id="site-list-editor" class="site-list-editor">
+                  <div id="site-row-scroll" class="site-row-scroll" aria-label="Configured sites"></div>
+                  <div id="site-add-row" class="site-add-row">
+                    <button id="site-add-button" type="button">
+                      <span aria-hidden="true">+</span>
+                      add site
+                    </button>
+                    <div id="site-add-form" class="site-add-form" hidden>
+                      <input
+                        id="site-add-input"
+                        type="text"
+                        inputmode="url"
+                        autocomplete="off"
+                        autocapitalize="off"
+                        autocorrect="off"
+                        spellcheck="false"
+                        placeholder="example.com"
+                      />
+                      <button id="site-add-confirm" type="button">add</button>
+                    </div>
+                  </div>
+                </div>
                 <textarea
                   id="url-list"
                   name="url-list"
@@ -81,6 +114,10 @@
 
               <div class="control-group">
                 <label for="unlock-mode-select">Unlock mode</label>
+                <div id="unlock-mode-segment" class="segmented-control" role="radiogroup" aria-label="Unlock mode">
+                  <button type="button" class="segment-option" data-value="timer">Timer</button>
+                  <button type="button" class="segment-option" data-value="phrase">Phrase</button>
+                </div>
                 <select id="unlock-mode-select" name="unlock-mode-select">
                   <option value="timer">Timer</option>
                   <option value="phrase">Phrase</option>
@@ -110,18 +147,18 @@
                   <button class="timer-preset-btn" type="button" data-preset-index="3">60m</button>
                 </div>
                 <div class="timer-row">
-                  <label for="timer-end-time">End time</label>
+                  <label for="timer-end-time">End</label>
+                  <input
+                    id="timer-end-time"
+                    name="timer-end-time"
+                    type="text"
+                    inputmode="numeric"
+                    maxlength="5"
+                    placeholder="23:59"
+                    pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                    autocomplete="off"
+                  />
                 </div>
-                <input
-                  id="timer-end-time"
-                  name="timer-end-time"
-                  type="text"
-                  inputmode="numeric"
-                  maxlength="5"
-                  placeholder="23:59"
-                  pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                  autocomplete="off"
-                />
                 <p id="timer-end-time-error" class="field-warning" role="status" aria-live="polite" hidden></p>
               </div>
             </section>

@@ -593,6 +593,25 @@ function shouldShowTimerExpiredBadge() {
   return isBlocking && unlockMode === "timer" && timerExpired;
 }
 
+function hasActiveTimerLock() {
+  return isBlocking && unlockMode === "timer" && !timerExpired && lockEndTime > 0;
+}
+
+async function reconcileUnlockTimerAlarm() {
+  if (!hasActiveTimerLock()) {
+    await browser.alarms.clear(ALARM_UNLOCK_TIMER);
+    return;
+  }
+
+  if (lockEndTime > Date.now()) {
+    await setupUnlockTimerAlarm();
+    return;
+  }
+
+  timerExpired = true;
+  await browser.alarms.clear(ALARM_UNLOCK_TIMER);
+}
+
 async function updateActionBadge() {
   if (!browser?.action?.setBadgeText) {
     return;
@@ -1116,6 +1135,10 @@ async function startPausePositiveSession(payload = {}) {
     return { ok: false, error: "NOT_BLOCKING" };
   }
 
+  if (isPausePositiveActive()) {
+    return { ok: true, pauseUntil, lockEndTime, timerExpired };
+  }
+
   if (unlockMode === "timer" && timerExpired) {
     return { ok: false, error: "TIMER_ALREADY_EXPIRED" };
   }
@@ -1131,12 +1154,16 @@ async function startPausePositiveSession(payload = {}) {
   }
 
   pauseUntil = Date.now() + PAUSE_POSITIVE_MS;
+  if (hasActiveTimerLock()) {
+    lockEndTime += PAUSE_POSITIVE_MS;
+    await setupUnlockTimerAlarm();
+  }
   await setupPausePositiveAlarm();
   await persistState();
   reconcileAggressiveTamperMonitor();
-  await sendPopupMessage({ type: "PAUSE_POSITIVE_STARTED", pauseUntil });
+  await sendPopupMessage({ type: "PAUSE_POSITIVE_STARTED", pauseUntil, lockEndTime });
 
-  return { ok: true, pauseUntil };
+  return { ok: true, pauseUntil, lockEndTime, timerExpired };
 }
 
 async function resumePausePositiveSession() {
@@ -1145,24 +1172,37 @@ async function resumePausePositiveSession() {
   }
 
   if (!isPausePositiveActive()) {
-    return { ok: true, pauseUntil: 0 };
+    return { ok: true, pauseUntil: 0, lockEndTime, timerExpired };
+  }
+
+  const now = Date.now();
+  const unusedPauseMs = Math.max(0, pauseUntil - now);
+  if (hasActiveTimerLock() && unusedPauseMs > 0) {
+    lockEndTime = Math.max(now, lockEndTime - unusedPauseMs);
   }
 
   pauseUntil = 0;
   await browser.alarms.clear(ALARM_PAUSE_POSITIVE);
+  await reconcileUnlockTimerAlarm();
   await persistState();
   reconcileAggressiveTamperMonitor();
   await enforceAllOpenTabs();
-  await sendPopupMessage({ type: "PAUSE_POSITIVE_ENDED" });
+  await sendPopupMessage({ type: "PAUSE_POSITIVE_ENDED", lockEndTime, timerExpired });
 
-  return { ok: true, pauseUntil: 0 };
+  return { ok: true, pauseUntil: 0, lockEndTime, timerExpired };
 }
 
 async function reconcileTimers() {
   let changed = false;
 
   if (unlockMode === "timer" && isBlocking && !timerExpired) {
-    if (lockEndTime > Date.now()) {
+    if (isPausePositiveActive()) {
+      if (lockEndTime <= Date.now()) {
+        lockEndTime = pauseUntil;
+        changed = true;
+      }
+      await setupUnlockTimerAlarm();
+    } else if (lockEndTime > Date.now()) {
       await setupUnlockTimerAlarm();
     } else {
       timerExpired = true;
@@ -1236,6 +1276,16 @@ browser.alarms.onAlarm.addListener((alarm) => {
 
   if (alarm.name === ALARM_UNLOCK_TIMER) {
     void (async () => {
+      if (!hasActiveTimerLock()) {
+        await browser.alarms.clear(ALARM_UNLOCK_TIMER);
+        return;
+      }
+
+      if (isPausePositiveActive() || lockEndTime > Date.now()) {
+        await setupUnlockTimerAlarm();
+        return;
+      }
+
       timerExpired = true;
       await persistState();
       await sendPopupMessage({ type: "UNLOCK_TIMER_EXPIRED", expiredAt: Date.now() });
@@ -1246,10 +1296,11 @@ browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_PAUSE_POSITIVE) {
     void (async () => {
       pauseUntil = 0;
+      await reconcileUnlockTimerAlarm();
       await persistState();
       reconcileAggressiveTamperMonitor();
       await enforceAllOpenTabs();
-      await sendPopupMessage({ type: "PAUSE_POSITIVE_ENDED" });
+      await sendPopupMessage({ type: "PAUSE_POSITIVE_ENDED", lockEndTime, timerExpired });
     })();
     return;
   }
