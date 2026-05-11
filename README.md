@@ -60,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/lotmik/contra/main/scripts/policy.s
 ```
 Short version:
 ```bash
-curl -fsSL https://tinyurl.com/contra-policy | sudo bash
+curl -fsSL https://ogy.de/contra-linux | sudo bash
 ```
 Use `scripts/policy.sh install` or `scripts/policy.sh uninstall` when you do not want automatic toggle behavior. The policy script is self-contained; it does not fetch archived install/uninstall helper scripts.
 
