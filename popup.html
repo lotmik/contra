@@ -7,165 +7,198 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main id="popup-root">
-      <div id="progress-line" aria-hidden="true"></div>
+    <div id="popup-shell">
+      <aside id="site-import-panel" hidden aria-label="Import sites">
+        <button
+          id="site-import-apply"
+          class="site-import-panel-button site-import-panel-apply"
+          type="button"
+          aria-label="Apply imported sites"
+        >
+          <svg class="site-import-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3.25 8.5 6.4 11.65 12.75 4.9" />
+          </svg>
+        </button>
+        <button
+          id="site-import-close"
+          class="site-import-panel-button site-import-panel-close"
+          type="button"
+          aria-label="Close import"
+        >
+          <svg class="site-import-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4 12 12" />
+            <path d="M12 4 4 12" />
+          </svg>
+        </button>
+        <textarea
+          id="site-import-input"
+          spellcheck="false"
+          placeholder="Paste your URL list, one website per line"
+        ></textarea>
+      </aside>
+      <main id="popup-root">
+        <div id="progress-line" aria-hidden="true"></div>
 
-      <header>
-        <h1 id="header-title">contra.</h1>
-      </header>
+        <header>
+          <h1 id="header-title">contra.</h1>
+        </header>
 
-      <div id="status-area" aria-live="polite"></div>
+        <section class="power-section" aria-label="Power toggle">
+          <input id="power-toggle" name="power-toggle" type="checkbox" />
+          <label id="power-toggle-label" for="power-toggle">
+            <span class="sr-only">Enable blocking</span>
+          </label>
+        </section>
 
-      <section class="power-section" aria-label="Power toggle">
-        <input id="power-toggle" name="power-toggle" type="checkbox" />
-        <label id="power-toggle-label" for="power-toggle">
-          <span class="sr-only">Enable blocking</span>
-        </label>
-      </section>
+        <div id="lockable-area">
+          <div id="unlock-challenge" aria-hidden="true">
+            <div id="unlock-timer-panel" hidden>
+              <div id="unlock-timer-countdown">00:00</div>
+              <div id="unlock-timer-caption">locked</div>
+            </div>
 
-      <div id="lockable-area">
-        <div id="unlock-challenge" aria-hidden="true">
-          <div id="unlock-timer-panel" hidden>
-            <div id="unlock-timer-countdown">00:00</div>
-            <div id="unlock-timer-caption">locked</div>
+            <label for="unlock-phrase-input">Unlock phrase</label>
+            <div id="unlock-typing-surface">
+              <input
+                id="unlock-phrase-input"
+                name="unlock-phrase-input"
+                type="text"
+                autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
+              />
+              <div
+                id="unlock-phrase-display"
+                aria-label="Type unlock phrase"
+              ></div>
+              <span id="unlock-phrase-caret" aria-hidden="true"></span>
+            </div>
+            <div id="unlock-action-row">
+              <button id="unlock-break-btn" type="button" hidden>Break 2 min</button>
+              <button id="unlock-confirm-btn" type="button">Confirm</button>
+            </div>
           </div>
 
-          <label for="unlock-phrase-input">Unlock phrase</label>
-          <div id="unlock-typing-surface">
-            <input
-              id="unlock-phrase-input"
-              name="unlock-phrase-input"
-              type="text"
-              autocomplete="off"
-              autocapitalize="off"
-              autocorrect="off"
-              spellcheck="false"
-            />
-            <div
-              id="unlock-phrase-display"
-              aria-label="Type unlock phrase"
-            ></div>
-            <span id="unlock-phrase-caret" aria-hidden="true"></span>
-          </div>
-          <div id="unlock-action-row">
-            <button id="unlock-break-btn" type="button" hidden>Break 2 min</button>
-            <button id="unlock-confirm-btn" type="button">Confirm</button>
-          </div>
-        </div>
-
-        <details id="settings-dropdown">
-          <summary id="settings-summary" aria-label="settings" data-label="settings"></summary>
-          <div id="settings-blur-wrap">
-            <section id="settings-area" aria-label="Settings">
-              <div class="control-group">
-                <label for="mode-select">Mode</label>
-                <div id="mode-segment" class="segmented-control" role="radiogroup" aria-label="Mode">
-                  <button type="button" class="segment-option" data-value="block">Blocklist</button>
-                  <button type="button" class="segment-option" data-value="allow">Allowlist</button>
-                </div>
-                <select id="mode-select" name="mode-select">
-                  <option value="block">Blocklist</option>
-                  <option value="allow">Whitelist</option>
-                </select>
-              </div>
-
-              <div class="control-group">
-                <label for="url-list">websites</label>
-                <div id="site-list-editor" class="site-list-editor">
-                  <div id="site-row-scroll" class="site-row-scroll" aria-label="Configured sites"></div>
-                  <div id="site-add-row" class="site-add-row">
-                    <button id="site-add-button" type="button">
-                      <span aria-hidden="true">+</span>
-                      add site
-                    </button>
-                    <div id="site-add-form" class="site-add-form" hidden>
-                      <input
-                        id="site-add-input"
-                        type="text"
-                        inputmode="url"
-                        autocomplete="off"
-                        autocapitalize="off"
-                        autocorrect="off"
-                        spellcheck="false"
-                        placeholder="example.com"
-                      />
-                      <button id="site-add-confirm" type="button">add</button>
-                    </div>
-                  </div>
-                </div>
-                <textarea
-                  id="url-list"
-                  name="url-list"
-                  rows="1"
-                  placeholder="example.com"
-                ></textarea>
-                <p id="url-list-error" class="field-error" role="alert" hidden></p>
-              </div>
-
-              <div id="adult-content-control" class="control-group control-group-inline">
-                <label for="adult-content-toggle">Block adult content</label>
-                <input
-                  id="adult-content-toggle"
-                  name="adult-content-toggle"
-                  type="checkbox"
-                  class="settings-checkbox"
-                />
-              </div>
-
-              <div class="control-group">
-                <label for="unlock-mode-select">Unlock mode</label>
-                <div id="unlock-mode-segment" class="segmented-control" role="radiogroup" aria-label="Unlock mode">
-                  <button type="button" class="segment-option" data-value="timer">Timer</button>
-                  <button type="button" class="segment-option" data-value="phrase">Phrase</button>
-                </div>
-                <select id="unlock-mode-select" name="unlock-mode-select">
-                  <option value="timer">Timer</option>
-                  <option value="phrase">Phrase</option>
-                </select>
-              </div>
-
-              <details id="unlock-phrase-setting-dropdown" class="settings-sub-dropdown">
-                <summary id="unlock-phrase-setting-summary">Unlock phrase</summary>
+          <details id="settings-dropdown">
+            <summary id="settings-summary" aria-label="settings" data-label="settings"></summary>
+            <div id="settings-blur-wrap">
+              <section id="settings-area" aria-label="Settings">
                 <div class="control-group">
-                  <label class="sr-only" for="unlock-phrase-setting">Unlock phrase</label>
-                  <textarea
-                    id="unlock-phrase-setting"
-                    name="unlock-phrase-setting"
-                    rows="1"
-                    spellcheck="false"
-                    placeholder="I swear to God and to my future self that my internet usage will not ruin my cognitive abilities or stop me from achieving my life goals"
-                  ></textarea>
+                  <label for="mode-select">Mode</label>
+                  <div id="mode-segment" class="segmented-control" role="radiogroup" aria-label="Mode">
+                    <button type="button" class="segment-option" data-value="block">Blocklist</button>
+                    <button type="button" class="segment-option" data-value="allow">Allowlist</button>
+                  </div>
+                  <select id="mode-select" name="mode-select">
+                    <option value="block">Blocklist</option>
+                    <option value="allow">Whitelist</option>
+                  </select>
                 </div>
-              </details>
 
-              <div id="timer-settings-group" class="control-group">
-                <label for="timer-end-time">Timer (double click to edit)</label>
-                <div id="timer-presets" class="timer-presets" aria-label="Timer presets">
-                  <button class="timer-preset-btn" type="button" data-preset-index="0">15m</button>
-                  <button class="timer-preset-btn" type="button" data-preset-index="1">25m</button>
-                  <button class="timer-preset-btn" type="button" data-preset-index="2">45m</button>
-                  <button class="timer-preset-btn" type="button" data-preset-index="3">60m</button>
-                </div>
-                <div class="timer-row">
-                  <label for="timer-end-time">End</label>
+                <details id="website-settings-dropdown" class="settings-sub-dropdown" open>
+                  <summary id="website-settings-summary">websites</summary>
+                  <div class="control-group">
+                    <div id="site-list-editor" class="site-list-editor">
+                      <div id="site-row-scroll" class="site-row-scroll" aria-label="Configured sites"></div>
+                      <div id="site-add-row" class="site-add-row">
+                        <div class="site-add-actions">
+                          <button id="site-add-button" type="button">add site</button>
+                          <button id="site-current-button" type="button">add this site</button>
+                          <button id="site-import-button" type="button" aria-pressed="false">import</button>
+                        </div>
+                        <div id="site-add-form" class="site-add-form" hidden>
+                          <input
+                            id="site-add-input"
+                            type="text"
+                            inputmode="url"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            autocorrect="off"
+                            spellcheck="false"
+                            placeholder="example.com"
+                          />
+                          <button id="site-add-confirm" type="button">add</button>
+                        </div>
+                      </div>
+                    </div>
+                    <textarea
+                      id="url-list"
+                      name="url-list"
+                      rows="1"
+                      placeholder="example.com"
+                    ></textarea>
+                    <p id="url-list-error" class="field-error" role="alert" hidden></p>
+                  </div>
+                </details>
+
+                <div id="adult-content-control" class="control-group control-group-inline">
+                  <label for="adult-content-toggle">Block adult content</label>
                   <input
-                    id="timer-end-time"
-                    name="timer-end-time"
-                    type="text"
-                    inputmode="numeric"
-                    maxlength="5"
-                    placeholder="23:59"
-                    pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
-                    autocomplete="off"
+                    id="adult-content-toggle"
+                    name="adult-content-toggle"
+                    type="checkbox"
+                    class="settings-checkbox"
                   />
                 </div>
-                <p id="timer-end-time-error" class="field-warning" role="status" aria-live="polite" hidden></p>
-              </div>
-            </section>
-          </div>
-        </details>
-      </div>
-    </main>
+
+                <div class="control-group">
+                  <label for="unlock-mode-select">Unlock mode</label>
+                  <div id="unlock-mode-segment" class="segmented-control" role="radiogroup" aria-label="Unlock mode">
+                    <button type="button" class="segment-option" data-value="timer">Timer</button>
+                    <button type="button" class="segment-option" data-value="phrase">Phrase</button>
+                  </div>
+                  <select id="unlock-mode-select" name="unlock-mode-select">
+                    <option value="timer">Timer</option>
+                    <option value="phrase">Phrase</option>
+                  </select>
+                </div>
+
+                <div id="unlock-mode-settings-stack">
+                  <details id="unlock-phrase-setting-dropdown" class="settings-sub-dropdown">
+                    <summary id="unlock-phrase-setting-summary">Unlock phrase</summary>
+                    <div class="control-group">
+                      <label class="sr-only" for="unlock-phrase-setting">Unlock phrase</label>
+                      <textarea
+                        id="unlock-phrase-setting"
+                        name="unlock-phrase-setting"
+                        rows="1"
+                        spellcheck="false"
+                        placeholder="I swear to God and to my future self that my internet usage will not ruin my cognitive abilities or stop me from achieving my life goals"
+                      ></textarea>
+                    </div>
+                  </details>
+
+                  <div id="timer-settings-group" class="control-group">
+                    <label for="timer-end-time">Timer (double click to edit)</label>
+                    <div id="timer-presets" class="timer-presets" aria-label="Timer presets">
+                      <button class="timer-preset-btn" type="button" data-preset-index="0">15m</button>
+                      <button class="timer-preset-btn" type="button" data-preset-index="1">25m</button>
+                      <button class="timer-preset-btn" type="button" data-preset-index="2">45m</button>
+                      <button class="timer-preset-btn" type="button" data-preset-index="3">60m</button>
+                    </div>
+                    <div class="timer-row">
+                      <label for="timer-end-time">End</label>
+                      <input
+                        id="timer-end-time"
+                        name="timer-end-time"
+                        type="text"
+                        inputmode="numeric"
+                        maxlength="5"
+                        placeholder="23:59"
+                        pattern="^([01]\\d|2[0-3]):([0-5]\\d)$"
+                        autocomplete="off"
+                      />
+                    </div>
+                    <p id="timer-end-time-error" class="field-warning" role="status" aria-live="polite" hidden></p>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </details>
+        </div>
+      </main>
+    </div>
     <script src="popup.js"></script>
   </body>
 </html>

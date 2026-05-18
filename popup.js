@@ -9,8 +9,13 @@ const TIMER_END_TIME_WARNING_TEXT = "Timer exceeds 4 hours. Proceed if desired";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
 const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
-const UNLOCK_PHRASE_SETTING_MIN_HEIGHT = 28;
+const UNLOCK_PHRASE_SETTING_MIN_HEIGHT = 0;
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
+const CURRENT_TAB_RULE_LABELS = {
+  block: "add this site",
+  allow: "add this page"
+};
+const CURRENT_TAB_SUPPORTED_PROTOCOLS = new Set(["http:", "https:"]);
 const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
 const STORAGE_KEYS = [
   "isBlocking",
@@ -64,13 +69,18 @@ let urlListSyncTimeoutId = null;
 let pendingUrlListSyncDraft = null;
 let urlListValidationTimeoutId = null;
 let isSiteAddFormVisible = false;
+let isSiteImportPopoverVisible = false;
+let isSyncingSettingsAccordion = false;
+let isMeasuringUnlockModeSettingsHeight = false;
 let skipNextUnlockPhraseSettingBlurSave = false;
+let currentTabUrl = "";
+let canAddCurrentTab = false;
 
 const elements = {
   body: document.body,
+  popupShell: document.getElementById("popup-shell"),
   popupRoot: document.getElementById("popup-root"),
   progressLine: document.getElementById("progress-line"),
-  statusArea: document.getElementById("status-area"),
   powerSection: document.querySelector(".power-section"),
   powerToggle: document.getElementById("power-toggle"),
   powerToggleAssistiveText: document.querySelector("#power-toggle-label .sr-only"),
@@ -88,6 +98,8 @@ const elements = {
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
   settingsDropdown: document.getElementById("settings-dropdown"),
   settingsSummary: document.getElementById("settings-summary"),
+  websiteSettingsDropdown: document.getElementById("website-settings-dropdown"),
+  websiteSettingsSummary: document.getElementById("website-settings-summary"),
   modeSelect: document.getElementById("mode-select"),
   modeSegment: document.getElementById("mode-segment"),
   urlList: document.getElementById("url-list"),
@@ -95,6 +107,12 @@ const elements = {
   siteListEditor: document.getElementById("site-list-editor"),
   siteRowScroll: document.getElementById("site-row-scroll"),
   siteAddButton: document.getElementById("site-add-button"),
+  siteCurrentButton: document.getElementById("site-current-button"),
+  siteImportButton: document.getElementById("site-import-button"),
+  siteImportPanel: document.getElementById("site-import-panel"),
+  siteImportInput: document.getElementById("site-import-input"),
+  siteImportApply: document.getElementById("site-import-apply"),
+  siteImportClose: document.getElementById("site-import-close"),
   siteAddForm: document.getElementById("site-add-form"),
   siteAddInput: document.getElementById("site-add-input"),
   siteAddConfirm: document.getElementById("site-add-confirm"),
@@ -102,6 +120,7 @@ const elements = {
   adultContentToggle: document.getElementById("adult-content-toggle"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   unlockModeSegment: document.getElementById("unlock-mode-segment"),
+  unlockModeSettingsStack: document.getElementById("unlock-mode-settings-stack"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
   timerEndTimeError: document.getElementById("timer-end-time-error"),
@@ -120,13 +139,13 @@ function sanitizeUnlockMode(value) {
   return value === "phrase" ? "phrase" : "timer";
 }
 
-function sanitizeList(value) {
+function sanitizeList(value, mode = "block") {
   if (!Array.isArray(value)) {
     return [];
   }
 
   const normalized = value
-    .map((item) => normalizeUrlRule(item))
+    .map((item) => normalizeUrlRule(item, mode))
     .filter((item) => typeof item === "string" && item.length > 0);
 
   return [...new Set(normalized)];
@@ -272,11 +291,9 @@ function autoResizeUnlockPhraseSettingField() {
   const selectionDirection = field.selectionDirection;
   field.style.height = "auto";
   const currentContentHeight = field.scrollHeight;
-
   field.value = DEFAULT_UNLOCK_PHRASE;
   field.style.height = "auto";
   const defaultPhraseHeight = field.scrollHeight;
-
   field.value = currentValue;
   if (document.activeElement === field) {
     field.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
@@ -290,7 +307,119 @@ function autoResizeUnlockPhraseSettingField() {
 }
 
 function scheduleUnlockPhraseSettingResize() {
-  window.requestAnimationFrame(autoResizeUnlockPhraseSettingField);
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(autoResizeUnlockPhraseSettingField);
+  });
+}
+
+function measureUnlockModeSettingsHeight({ showTimer, openPhrase, phraseValue = null }) {
+  const stack = elements.unlockModeSettingsStack;
+  const timerGroup = elements.timerSettingsGroup;
+  const phraseDropdown = elements.unlockPhraseSettingDropdown;
+  const phraseField = elements.unlockPhraseSettingInput;
+  if (!stack || !timerGroup || !phraseDropdown) {
+    return 0;
+  }
+
+  const previousTimerGroupHidden = timerGroup.hidden;
+  const previousPhraseOpen = phraseDropdown.open;
+  const wasTimerMode = elements.body.classList.contains("is-unlock-mode-timer");
+  const previousPhraseValue = phraseField?.value ?? "";
+  const previousPhraseSelectionStart = phraseField?.selectionStart ?? null;
+  const previousPhraseSelectionEnd = phraseField?.selectionEnd ?? null;
+  const previousPhraseSelectionDirection = phraseField?.selectionDirection ?? "none";
+  const previousMinHeight = stack.style.getPropertyValue("--unlock-mode-settings-min-height");
+
+  isMeasuringUnlockModeSettingsHeight = true;
+  stack.style.setProperty("--unlock-mode-settings-min-height", "0px");
+
+  if (showTimer) {
+    elements.body.classList.add("is-unlock-mode-timer");
+  } else {
+    elements.body.classList.remove("is-unlock-mode-timer");
+  }
+
+  timerGroup.hidden = !showTimer;
+  phraseDropdown.open = openPhrase;
+
+  if (phraseField && phraseValue !== null) {
+    phraseField.value = phraseValue;
+  }
+
+  if (openPhrase && phraseField) {
+    autoResizeUnlockPhraseSettingField();
+  }
+
+  const height = Math.ceil(stack.getBoundingClientRect().height);
+
+  timerGroup.hidden = previousTimerGroupHidden;
+  phraseDropdown.open = previousPhraseOpen;
+  if (phraseField) {
+    phraseField.value = previousPhraseValue;
+    if (document.activeElement === phraseField && previousPhraseSelectionStart !== null && previousPhraseSelectionEnd !== null) {
+      phraseField.setSelectionRange(
+        previousPhraseSelectionStart,
+        previousPhraseSelectionEnd,
+        previousPhraseSelectionDirection
+      );
+    }
+    autoResizeUnlockPhraseSettingField();
+  }
+
+  if (wasTimerMode) {
+    elements.body.classList.add("is-unlock-mode-timer");
+  } else {
+    elements.body.classList.remove("is-unlock-mode-timer");
+  }
+
+  if (previousMinHeight) {
+    stack.style.setProperty("--unlock-mode-settings-min-height", previousMinHeight);
+  } else {
+    stack.style.removeProperty("--unlock-mode-settings-min-height");
+  }
+  isMeasuringUnlockModeSettingsHeight = false;
+  return height;
+}
+
+function syncUnlockModeSettingsMinHeight() {
+  const stack = elements.unlockModeSettingsStack;
+  if (!stack) {
+    return;
+  }
+
+  const timerHeight = measureUnlockModeSettingsHeight({ showTimer: true, openPhrase: false });
+  const defaultPhraseHeight = measureUnlockModeSettingsHeight({
+    showTimer: false,
+    openPhrase: true,
+    phraseValue: DEFAULT_UNLOCK_PHRASE
+  });
+  const currentPhraseHeight = measureUnlockModeSettingsHeight({
+    showTimer: false,
+    openPhrase: true
+  });
+  const defaultHeight = Math.max(timerHeight, defaultPhraseHeight);
+  const phraseHeightDelta = currentPhraseHeight - defaultPhraseHeight;
+  const minHeight = Math.max(0, defaultHeight + phraseHeightDelta);
+  stack.style.setProperty("--unlock-mode-settings-min-height", minHeight > 0 ? `${minHeight}px` : "0px");
+}
+
+function scheduleUnlockModeSettingsMinHeightSync() {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(syncUnlockModeSettingsMinHeight);
+  });
+}
+
+function reconcileUnlockPhraseSettingLayout() {
+  if (
+    !elements.settingsDropdown?.open ||
+    elements.settingsDropdown.hidden ||
+    elements.settingsDropdown.hasAttribute("inert") ||
+    !elements.unlockPhraseSettingDropdown?.open
+  ) {
+    return;
+  }
+
+  scheduleUnlockPhraseSettingResize();
 }
 
 function getReferencePhraseForTyping() {
@@ -556,7 +685,12 @@ function isValidUrlHostname(hostname) {
   return hostname.includes(".") && !hostname.startsWith(".") && !hostname.endsWith(".");
 }
 
-function normalizeUrlRule(rawValue) {
+function normalizeRulePathname(pathname) {
+  const normalized = String(pathname || "/").replace(/\/+$/, "");
+  return normalized.length > 0 ? normalized : "/";
+}
+
+function normalizeUrlRule(rawValue, mode = "block") {
   const trimmed = String(rawValue || "").trim().toLowerCase();
   if (trimmed.length === 0 || /\s/.test(trimmed)) {
     return null;
@@ -570,18 +704,103 @@ function normalizeUrlRule(rawValue) {
   const candidate = hasScheme ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
-    return isValidUrlHostname(parsed.hostname.toLowerCase()) ? trimmed : null;
+    const hostname = parsed.hostname.toLowerCase();
+    if (!isValidUrlHostname(hostname)) {
+      return null;
+    }
+
+    if (sanitizeMode(mode) !== "allow") {
+      return trimmed;
+    }
+
+    const pathname = normalizeRulePathname(parsed.pathname);
+    return pathname === "/" ? hostname : `${hostname}${pathname}`;
   } catch {
     return null;
   }
 }
 
-function parseUrls(text) {
-  return sanitizeList(splitUrlListLines(text));
+function parseUrls(text, mode = state.mode) {
+  return sanitizeList(splitUrlListLines(text), mode);
 }
 
-function formatUrls(list) {
-  return sanitizeList(list).join("\n");
+function formatUrls(list, mode = state.mode) {
+  return sanitizeList(list, mode).join("\n");
+}
+
+function getCurrentTabButtonLabel(mode = state.mode) {
+  return CURRENT_TAB_RULE_LABELS[sanitizeMode(mode)];
+}
+
+function currentTabRuleExistsInEditor(mode = state.mode) {
+  const nextRule = getCurrentTabRuleForMode(mode);
+  if (!nextRule) {
+    return false;
+  }
+
+  return getTrimmedUrlEditorLines().some((line) => normalizeUrlRule(line, mode) === nextRule);
+}
+
+function updateCurrentTabButton() {
+  if (!elements.siteCurrentButton) {
+    return;
+  }
+
+  const label = getCurrentTabButtonLabel();
+  const isDuplicate = currentTabRuleExistsInEditor();
+  elements.siteCurrentButton.textContent = label;
+  elements.siteCurrentButton.disabled = !canAddCurrentTab || isDuplicate;
+  elements.siteCurrentButton.title = !canAddCurrentTab
+    ? "Only regular websites can be added"
+    : isDuplicate
+      ? state.mode === "allow"
+        ? "This page is already added"
+        : "This site is already added"
+      : "";
+}
+
+function buildCurrentTabRule(url, mode = state.mode) {
+  try {
+    const parsed = new URL(String(url || "").trim());
+    if (!CURRENT_TAB_SUPPORTED_PROTOCOLS.has(parsed.protocol)) {
+      return null;
+    }
+
+    const candidate =
+      sanitizeMode(mode) === "allow"
+        ? `${parsed.hostname}${normalizeRulePathname(parsed.pathname)}`
+        : parsed.hostname;
+
+    return normalizeUrlRule(candidate, mode);
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentTabRuleForMode(mode = state.mode) {
+  if (!canAddCurrentTab || !currentTabUrl) {
+    return null;
+  }
+
+  return buildCurrentTabRule(currentTabUrl, mode);
+}
+
+async function refreshCurrentTabState() {
+  currentTabUrl = "";
+  canAddCurrentTab = false;
+
+  try {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    const activeTab = Array.isArray(tabs) ? tabs[0] : null;
+    const nextUrl = String(activeTab?.url || "").trim();
+    const nextRule = buildCurrentTabRule(nextUrl);
+    currentTabUrl = nextUrl;
+    canAddCurrentTab = typeof nextRule === "string" && nextRule.length > 0;
+  } catch (error) {
+    console.error("Failed to read current tab", error);
+  }
+
+  updateCurrentTabButton();
 }
 
 function getTrimmedUrlEditorLines() {
@@ -640,23 +859,118 @@ function renderSiteRowsFromTextarea() {
     .filter((line) => line.length > 0);
   const fragment = document.createDocumentFragment();
 
-  if (lines.length === 0) {
-    const emptyRow = document.createElement("div");
-    emptyRow.className = "site-empty-row";
-    emptyRow.textContent = "no sites yet";
-    fragment.appendChild(emptyRow);
-  } else {
-    for (const line of lines) {
-      fragment.appendChild(createSiteRow(line));
-    }
+  for (const line of lines) {
+    fragment.appendChild(createSiteRow(line));
   }
 
   elements.siteRowScroll.replaceChildren(fragment);
 }
 
+function focusSiteAddInput() {
+  window.requestAnimationFrame(() => {
+    elements.siteAddInput.focus();
+  });
+}
+
+function focusSiteImportInput() {
+  window.requestAnimationFrame(() => {
+    elements.siteImportInput.focus();
+  });
+}
+
+function setSiteImportInputInvalid(isInvalid) {
+  elements.siteImportInput.classList.toggle("is-invalid", isInvalid);
+}
+
+function setSiteImportPopoverVisible(isVisible) {
+  isSiteImportPopoverVisible = isVisible === true;
+  elements.popupShell.classList.toggle("is-import-open", isSiteImportPopoverVisible);
+  elements.popupRoot.classList.toggle("is-import-window-open", isSiteImportPopoverVisible);
+  elements.siteImportPanel.hidden = !isSiteImportPopoverVisible;
+  elements.siteImportButton.classList.toggle("is-active", isSiteImportPopoverVisible);
+  elements.siteImportButton.setAttribute("aria-pressed", String(isSiteImportPopoverVisible));
+
+  if (!isSiteImportPopoverVisible) {
+    elements.siteImportInput.value = "";
+    setSiteImportInputInvalid(false);
+    return;
+  }
+
+  setSiteAddFormVisible(false);
+  setSiteImportInputInvalid(false);
+  focusSiteImportInput();
+}
+
+function countNonEmptyUrlLines(text) {
+  return splitUrlListLines(text)
+    .map((line) => String(line || "").trim())
+    .filter((line) => line.length > 0)
+    .length;
+}
+
+function importSiteListFromPanel() {
+  const lineCount = countNonEmptyUrlLines(elements.siteImportInput.value);
+  if (lineCount === 0) {
+    setSiteImportInputInvalid(true);
+    return;
+  }
+
+  const existingLines = sanitizeList(getTrimmedUrlEditorLines(), state.mode);
+  const mergedLines = [...existingLines];
+  const existingSet = new Set(existingLines);
+  let addedCount = 0;
+  let duplicateCount = 0;
+  let invalidCount = 0;
+
+  for (const rawLine of splitUrlListLines(elements.siteImportInput.value)) {
+    const trimmedLine = String(rawLine || "").trim();
+    if (trimmedLine.length === 0) {
+      continue;
+    }
+
+    const normalizedLine = normalizeUrlRule(trimmedLine, state.mode);
+    if (!normalizedLine) {
+      invalidCount += 1;
+      continue;
+    }
+
+    if (existingSet.has(normalizedLine)) {
+      duplicateCount += 1;
+      continue;
+    }
+
+    existingSet.add(normalizedLine);
+    mergedLines.push(normalizedLine);
+    addedCount += 1;
+  }
+
+  if (addedCount === 0 && duplicateCount === 0) {
+    setSiteImportInputInvalid(true);
+    return;
+  }
+
+  elements.urlList.value = mergedLines.join("\n");
+  renderSiteRowsFromTextarea();
+  scrollSiteRowsToLatest();
+  handleUrlListInput();
+  flushPendingUrlListSync();
+  setSiteImportPopoverVisible(false);
+}
+
+function scrollSiteRowsToLatest() {
+  window.requestAnimationFrame(() => {
+    elements.siteRowScroll.scrollTop = elements.siteRowScroll.scrollHeight;
+  });
+}
+
 function setSiteAddFormVisible(isVisible) {
+  if (isVisible && isSiteImportPopoverVisible) {
+    setSiteImportPopoverVisible(false);
+  }
+
   isSiteAddFormVisible = isVisible;
-  elements.siteAddButton.hidden = isVisible;
+  elements.siteAddButton.classList.toggle("is-active", isVisible);
+  elements.siteAddButton.setAttribute("aria-pressed", String(isVisible));
   elements.siteAddForm.hidden = !isVisible;
 
   if (!isVisible) {
@@ -664,9 +978,7 @@ function setSiteAddFormVisible(isVisible) {
     return;
   }
 
-  window.requestAnimationFrame(() => {
-    elements.siteAddInput.focus();
-  });
+  focusSiteAddInput();
 }
 
 function commitSiteAddInput() {
@@ -680,10 +992,33 @@ function commitSiteAddInput() {
   existingLines.push(nextValue);
   elements.urlList.value = existingLines.join("\n");
   renderSiteRowsFromTextarea();
-  setSiteAddFormVisible(false);
+  scrollSiteRowsToLatest();
+  handleUrlListInput();
+  flushPendingUrlListSync();
+  elements.siteAddInput.value = "";
+  focusSiteAddInput();
+}
+
+function commitCurrentTabRule() {
+  const nextRule = getCurrentTabRuleForMode();
+  if (!nextRule) {
+    return;
+  }
+
+  const existingLines = getTrimmedUrlEditorLines();
+  const hasDuplicate = existingLines.some((line) => normalizeUrlRule(line, state.mode) === nextRule);
+  if (hasDuplicate) {
+    return;
+  }
+
+  existingLines.push(nextRule);
+  elements.urlList.value = existingLines.join("\n");
+  renderSiteRowsFromTextarea();
+  scrollSiteRowsToLatest();
   handleUrlListInput();
   flushPendingUrlListSync();
 }
+
 
 function updateSegmentedControl(segment, value) {
   if (!segment) {
@@ -737,7 +1072,7 @@ function buildUrlListValidationError(text) {
       return `Line ${lineIndex + 1}: one link only`;
     }
 
-    if (!normalizeUrlRule(rawLine)) {
+    if (!normalizeUrlRule(rawLine, state.mode)) {
       return `Line ${lineIndex + 1}: invalid link`;
     }
   }
@@ -795,7 +1130,7 @@ function buildUrlListSyncDraft() {
 function applyUrlListDraftToState(draft) {
   const safeDraft = draft ?? buildUrlListSyncDraft();
   const mode = sanitizeMode(safeDraft.mode);
-  const parsedUrls = parseUrls(safeDraft.text);
+  const parsedUrls = parseUrls(safeDraft.text, mode);
   if (mode === "allow") {
     state.whiteList = parsedUrls;
     return mode;
@@ -1043,8 +1378,53 @@ function syncTimerControlsFromState() {
   reconcilePresetEndTimeTicker();
 }
 
-function updateStatus(text) {
-  elements.statusArea.textContent = text;
+function updatePopupBottomPaddingState() {
+  const isPhraseSectionExpanded =
+    Boolean(elements.settingsDropdown) &&
+    !elements.settingsDropdown.hidden &&
+    !elements.settingsDropdown.hasAttribute("inert") &&
+    elements.settingsDropdown.open &&
+    Boolean(elements.unlockPhraseSettingDropdown?.open);
+
+  elements.popupRoot?.classList.toggle("is-phrase-settings-expanded", isPhraseSectionExpanded);
+}
+
+function setTimerModeSettingsAccordion(activeSection) {
+  if (!elements.websiteSettingsDropdown || !elements.unlockPhraseSettingDropdown) {
+    return;
+  }
+
+  isSyncingSettingsAccordion = true;
+  elements.websiteSettingsDropdown.open = activeSection === "website";
+  elements.unlockPhraseSettingDropdown.open = activeSection === "phrase";
+  isSyncingSettingsAccordion = false;
+  if (activeSection === "phrase") {
+    scheduleUnlockPhraseSettingResize();
+  } else {
+    autoResizeUnlockPhraseSettingField();
+  }
+  updatePopupBottomPaddingState();
+}
+
+function syncSettingsAccordionForMode(preferredSection = null) {
+  if (!elements.websiteSettingsDropdown || !elements.unlockPhraseSettingDropdown) {
+    return;
+  }
+
+  if (state.unlockMode !== "timer") {
+    isSyncingSettingsAccordion = true;
+    elements.websiteSettingsDropdown.open = true;
+    elements.unlockPhraseSettingDropdown.open = state.unlockMode === "phrase";
+    isSyncingSettingsAccordion = false;
+    updatePopupBottomPaddingState();
+    reconcileUnlockPhraseSettingLayout();
+    return;
+  }
+
+  const activeSection =
+    preferredSection ||
+    (elements.unlockPhraseSettingDropdown.open ? "phrase" : "website");
+  setTimerModeSettingsAccordion(activeSection);
 }
 
 function setChallengeVisibility(isVisible) {
@@ -1067,11 +1447,13 @@ function setSettingsBlocked(isBlocked) {
     if (document.activeElement === elements.settingsSummary) {
       elements.settingsSummary.blur();
     }
+    updatePopupBottomPaddingState();
     return;
   }
 
   elements.settingsDropdown.removeAttribute("inert");
   elements.settingsSummary.removeAttribute("tabindex");
+  updatePopupBottomPaddingState();
 }
 
 function updateTimerSettingsVisibility() {
@@ -1081,16 +1463,14 @@ function updateTimerSettingsVisibility() {
   elements.timerEndTimeInput.disabled = !showTimerSettings;
   refreshTimerEndTimeWarning();
 
-  if (elements.unlockPhraseSettingDropdown) {
-    if (state.unlockMode === "phrase") {
-      elements.unlockPhraseSettingDropdown.open = true;
-    }
-  }
-
   if (elements.unlockPhraseSettingSummary) {
     elements.unlockPhraseSettingSummary.textContent =
       state.unlockMode === "timer" ? "Pause phrase" : "Unlock phrase";
   }
+
+  syncSettingsAccordionForMode("website");
+  scheduleUnlockModeSettingsMinHeightSync();
+  updatePopupBottomPaddingState();
 }
 
 function setPhraseControls({ visible, label, disabled }) {
@@ -1148,7 +1528,7 @@ function openUnlockChallenge() {
 
 function syncFormFromState() {
   elements.modeSelect.value = state.mode;
-  const formattedActiveList = formatUrls(state[getActiveListKey()]);
+  const formattedActiveList = formatUrls(state[getActiveListKey()], state.mode);
   const isEditingSiteRows = elements.siteListEditor?.contains(document.activeElement) === true;
   if (document.activeElement !== elements.urlList && !isEditingSiteRows) {
     elements.urlList.value = formattedActiveList;
@@ -1163,6 +1543,7 @@ function syncFormFromState() {
   elements.unlockModeSelect.value = state.unlockMode;
   syncSegmentedControlsFromState();
   updateTimerSettingsVisibility();
+  updateCurrentTabButton();
   elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
   autoResizeUnlockPhraseSettingField();
   syncTimerControlsFromState();
@@ -1184,7 +1565,7 @@ function applyFormToState() {
     state.timerMinutes = clampTimerMinutes(getMinutesUntilEndTime(state.manualEndTime));
   }
 
-  const parsedUrls = parseUrls(elements.urlList.value);
+  const parsedUrls = parseUrls(elements.urlList.value, state.mode);
   if (state.mode === "allow") {
     state.whiteList = parsedUrls;
   } else {
@@ -1219,8 +1600,8 @@ async function loadStateFromStorage() {
 
   state.isBlocking = stored.isBlocking === true;
   state.mode = sanitizeMode(stored.mode);
-  state.blockList = sanitizeList(stored.blockList);
-  state.whiteList = sanitizeList(stored.whiteList);
+  state.blockList = sanitizeList(stored.blockList, "block");
+  state.whiteList = sanitizeList(stored.whiteList, "allow");
   state.adultContentBlockingEnabled = stored.adultContentBlockingEnabled === true;
   state.unlockMode = sanitizeUnlockMode(stored.unlockMode);
 
@@ -1303,7 +1684,6 @@ function updateLockedChallenge() {
     setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
     setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
     elements.unlockConfirmButton.textContent = "Resume";
-    updateStatus(`Pause active: ${formatDuration(pauseRemaining)}`);
     return;
   }
 
@@ -1313,7 +1693,6 @@ function updateLockedChallenge() {
       setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
       setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
       elements.unlockConfirmButton.textContent = "Confirm";
-      updateStatus("Timer complete");
       return;
     }
 
@@ -1346,7 +1725,6 @@ function updateLockedChallenge() {
   });
   setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
   elements.unlockConfirmButton.textContent = "Stop";
-  updateStatus("Phrase required");
 }
 
 function stopTimerTick() {
@@ -1403,7 +1781,6 @@ function renderUi() {
   setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
   setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
   elements.unlockConfirmButton.textContent = "Confirm";
-  updateStatus("");
 }
 
 function collectPayloadFromState() {
@@ -1467,7 +1844,6 @@ async function startBlocking() {
     state.timerExpired = true;
     state.pauseUntil = 0;
     elements.powerToggle.checked = false;
-    updateStatus("Could not start blocking");
     renderUi();
     console.error("START_BLOCKING failed", error);
   }
@@ -1477,11 +1853,6 @@ async function stopBlocking() {
   try {
     const response = await browser.runtime.sendMessage({ type: "STOP_BLOCKING" });
     if (!response || response.ok !== true) {
-      if (response?.error === "TIMER_NOT_EXPIRED") {
-        updateStatus("Timer still active");
-      } else {
-        updateStatus("Could not stop blocking");
-      }
       elements.powerToggle.checked = state.isBlocking;
       return;
     }
@@ -1493,7 +1864,6 @@ async function stopBlocking() {
     await saveStateToStorage();
     renderUi();
   } catch (error) {
-    updateStatus("Could not stop blocking");
     elements.powerToggle.checked = state.isBlocking;
     console.error("STOP_BLOCKING failed", error);
   }
@@ -1503,7 +1873,6 @@ async function requestPausePositive() {
   const phrase = normalizePhrase(elements.unlockPhraseInput.value);
   const expectedPhrase = normalizePhrase(state.unlockPhrase);
   if (phrase !== expectedPhrase) {
-    updateStatus("Phrase does not match");
     return;
   }
 
@@ -1514,11 +1883,6 @@ async function requestPausePositive() {
     });
 
     if (!response || response.ok !== true) {
-      if (response?.error === "PAUSE_POSITIVE_DISABLED") {
-        updateStatus("Pause mode is disabled");
-      } else {
-        updateStatus("Could not start pause");
-      }
       return;
     }
 
@@ -1537,7 +1901,6 @@ async function requestPausePositive() {
     elements.unlockPhraseInput.value = "";
     renderUi();
   } catch (error) {
-    updateStatus("Could not start pause");
     console.error("REQUEST_PAUSE_POSITIVE failed", error);
   }
 }
@@ -1549,7 +1912,6 @@ async function resumePausePositive() {
     });
 
     if (!response || response.ok !== true) {
-      updateStatus("Could not resume blocking");
       return;
     }
 
@@ -1565,7 +1927,6 @@ async function resumePausePositive() {
     await saveStateToStorage();
     renderUi();
   } catch (error) {
-    updateStatus("Could not resume blocking");
     console.error("RESUME_PAUSE_POSITIVE failed", error);
   }
 }
@@ -1626,7 +1987,6 @@ async function handleUnlockConfirmClick() {
   const expectedPhrase = normalizePhrase(state.unlockPhrase);
   const actualPhrase = normalizePhrase(elements.unlockPhraseInput.value);
   if (actualPhrase !== expectedPhrase) {
-    updateStatus("Phrase does not match");
     return;
   }
 
@@ -1646,12 +2006,14 @@ function handleModeChange() {
   clearPendingUrlListSync();
   clearPendingUrlListValidation();
   setUrlListValidationError("");
-  state[getActiveListKey()] = parseUrls(elements.urlList.value);
+  const previousMode = state.mode;
+  state[getActiveListKey()] = parseUrls(elements.urlList.value, previousMode);
   state.mode = sanitizeMode(elements.modeSelect.value);
-  elements.urlList.value = formatUrls(state[getActiveListKey()]);
+  elements.urlList.value = formatUrls(state[getActiveListKey()], state.mode);
   renderSiteRowsFromTextarea();
   setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
   syncSegmentedControlsFromState();
+  updateCurrentTabButton();
   updatePowerToggleAvailability();
 
   void browser.storage.local
@@ -1669,6 +2031,7 @@ function handleUrlListInput() {
   if (elements.siteListEditor?.contains(document.activeElement) === true) {
     syncUrlListFromSiteRows();
   }
+  updateCurrentTabButton();
   updatePowerToggleAvailability();
   scheduleUrlListSync();
 }
@@ -1734,6 +2097,47 @@ function handleSiteAddKeydown(event) {
   if (event.key === "Escape") {
     event.preventDefault();
     setSiteAddFormVisible(false);
+  }
+}
+
+function handleSiteAddFormFocusOut(event) {
+  if (!isSiteAddFormVisible) {
+    return;
+  }
+
+  if (event.relatedTarget === elements.siteAddButton) {
+    return;
+  }
+
+  if (elements.siteAddForm.contains(event.relatedTarget)) {
+    return;
+  }
+
+  setSiteAddFormVisible(false);
+}
+
+function handleSiteImportButtonClick() {
+  setSiteImportPopoverVisible(!isSiteImportPopoverVisible);
+}
+
+function handleSiteAddButtonClick() {
+  setSiteAddFormVisible(!isSiteAddFormVisible);
+}
+
+function handleSiteCurrentButtonClick() {
+  commitCurrentTabRule();
+}
+
+function handleSiteImportInputKeydown(event) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    setSiteImportPopoverVisible(false);
+    return;
+  }
+
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    importSiteListFromPanel();
   }
 }
 
@@ -1973,6 +2377,7 @@ function handleUnlockPhraseSettingInput() {
   }
 
   autoResizeUnlockPhraseSettingField();
+  scheduleUnlockModeSettingsMinHeightSync();
   state.unlockPhrase = sanitized;
   renderPhraseTypingPreview();
   void saveStateToStorage().catch((error) => {
@@ -1982,6 +2387,7 @@ function handleUnlockPhraseSettingInput() {
 
 function handleUnlockPhraseSettingTyping() {
   autoResizeUnlockPhraseSettingField();
+  scheduleUnlockModeSettingsMinHeightSync();
 }
 
 function handleUnlockPhraseSettingKeydown(event) {
@@ -2005,12 +2411,49 @@ function handleUnlockPhraseSettingBlur() {
 }
 
 function handleUnlockPhraseSettingDropdownToggle() {
-  if (!elements.unlockPhraseSettingDropdown?.open) {
-    autoResizeUnlockPhraseSettingField();
+  if (isMeasuringUnlockModeSettingsHeight) {
     return;
   }
 
+  if (!elements.unlockPhraseSettingDropdown?.open) {
+    autoResizeUnlockPhraseSettingField();
+    if (state.unlockMode === "timer" && !isSyncingSettingsAccordion) {
+      setTimerModeSettingsAccordion("website");
+      return;
+    }
+    scheduleUnlockModeSettingsMinHeightSync();
+    updatePopupBottomPaddingState();
+    return;
+  }
+
+  if (state.unlockMode === "timer" && !isSyncingSettingsAccordion) {
+    setTimerModeSettingsAccordion("phrase");
+  }
   scheduleUnlockPhraseSettingResize();
+  scheduleUnlockModeSettingsMinHeightSync();
+  updatePopupBottomPaddingState();
+}
+
+function handleSettingsDropdownToggle() {
+  if (elements.settingsDropdown?.open) {
+    syncSettingsAccordionForMode();
+    reconcileUnlockPhraseSettingLayout();
+  }
+  scheduleUnlockModeSettingsMinHeightSync();
+  updatePopupBottomPaddingState();
+}
+
+function handleWebsiteSettingsDropdownToggle() {
+  if (state.unlockMode !== "timer" || isSyncingSettingsAccordion) {
+    return;
+  }
+
+  if (elements.websiteSettingsDropdown?.open) {
+    setTimerModeSettingsAccordion("website");
+    return;
+  }
+
+  setTimerModeSettingsAccordion("phrase");
 }
 
 function isEditableTarget(target) {
@@ -2146,6 +2589,7 @@ function handleRuntimeMessage(message = {}) {
 async function initializePopup() {
   await loadStateFromStorage();
   await loadManagedPolicyFromStorage();
+  await refreshCurrentTabState();
   syncFormFromState();
   renderUi();
 
@@ -2167,9 +2611,19 @@ async function initializePopup() {
   elements.siteRowScroll?.addEventListener("focusout", handleSiteRowFocusOut);
   elements.siteRowScroll?.addEventListener("keydown", handleSiteRowKeydown);
   elements.siteRowScroll?.addEventListener("click", handleSiteRowClick);
-  elements.siteAddButton?.addEventListener("click", () => {
-    setSiteAddFormVisible(true);
+  elements.siteAddButton?.addEventListener("click", handleSiteAddButtonClick);
+  elements.siteCurrentButton?.addEventListener("click", handleSiteCurrentButtonClick);
+  elements.siteAddForm?.addEventListener("focusout", handleSiteAddFormFocusOut);
+  elements.siteImportButton?.addEventListener("click", handleSiteImportButtonClick);
+  elements.siteImportApply?.addEventListener("click", importSiteListFromPanel);
+  elements.siteImportClose?.addEventListener("click", () => {
+    setSiteImportPopoverVisible(false);
   });
+  elements.siteImportInput?.addEventListener("keydown", handleSiteImportInputKeydown);
+  elements.siteImportInput?.addEventListener("input", () => {
+    setSiteImportInputInvalid(false);
+  });
+  elements.siteAddForm?.addEventListener("focusout", handleSiteAddFormFocusOut);
   elements.siteAddConfirm?.addEventListener("click", commitSiteAddInput);
   elements.siteAddInput?.addEventListener("keydown", handleSiteAddKeydown);
   elements.adultContentToggle.addEventListener("change", handleAdultContentToggleChange);
@@ -2179,6 +2633,8 @@ async function initializePopup() {
   elements.unlockPhraseSettingInput.addEventListener("keydown", handleUnlockPhraseSettingKeydown);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
   elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingBlur);
+  elements.settingsDropdown?.addEventListener("toggle", handleSettingsDropdownToggle);
+  elements.websiteSettingsDropdown?.addEventListener("toggle", handleWebsiteSettingsDropdownToggle);
   elements.unlockPhraseSettingDropdown?.addEventListener("toggle", handleUnlockPhraseSettingDropdownToggle);
   elements.timerEndTimeInput.addEventListener("input", handleTimerEndTimeInput);
   elements.timerEndTimeInput.addEventListener("change", handleTimerEndTimeChange);
@@ -2208,9 +2664,9 @@ async function initializePopup() {
 
   browser.storage.onChanged.addListener(handleStorageChanged);
   browser.runtime.onMessage.addListener(handleRuntimeMessage);
+  updatePopupBottomPaddingState();
 }
 
 void initializePopup().catch((error) => {
-  updateStatus("Initialization failed");
   console.error("Popup initialization failed", error);
 });

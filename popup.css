@@ -14,6 +14,9 @@
   --muted: #686868;
   --dim: #3f3f3f;
   --radius: 8px;
+  --popup-main-width: 340px;
+  --popup-import-width: 286px;
+  --popup-total-width: 626px;
   --mono: "SFMono-Regular", Consolas, "Liberation Mono", "Courier New", monospace;
   --sans: "Segoe UI", "Noto Sans", Arial, sans-serif;
 }
@@ -32,13 +35,13 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 340px;
+  width: max-content;
   overflow: hidden;
 }
 
 body {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: flex-start;
   background: var(--bg);
   color: var(--text);
@@ -46,20 +49,121 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#popup-shell {
+  position: relative;
+  width: var(--popup-main-width);
+  display: flex;
+  justify-content: flex-end;
+}
+
 #popup-root {
   position: relative;
-  width: 100%;
+  width: var(--popup-main-width);
   max-height: 600px;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
   padding: 22px 22px 24px;
+  border-radius: var(--radius);
   background:
     radial-gradient(circle at 50% -24px, rgba(255, 255, 255, 0.065), transparent 96px),
     linear-gradient(180deg, #101010 0%, var(--bg) 100%);
   outline: 1px solid var(--line);
+}
+
+#popup-root.is-import-window-open {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+#site-import-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  height: 100%;
+}
+
+#site-import-panel[hidden] {
+  display: none !important;
+}
+
+.site-import-panel-button {
+  position: absolute;
+  top: 10px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.site-import-panel-button:hover {
+  color: var(--text-soft);
+}
+
+.site-import-panel-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.2);
+  outline-offset: 2px;
+}
+
+.site-import-panel-apply {
+  left: 10px;
+}
+
+.site-import-panel-close {
+  right: 10px;
+}
+
+.site-import-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#site-import-input {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #282828;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 44px 18px 18px;
+  resize: none;
+  outline: none;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+#site-import-input::placeholder {
+  color: var(--muted);
+}
+
+#site-import-input:focus {
+  border-color: var(--line-strong);
+}
+
+#site-import-input.is-invalid {
+  border-color: var(--red);
 }
 
 #progress-line {
@@ -76,7 +180,6 @@ body {
 }
 
 header,
-#status-area,
 #lockable-area,
 #settings-dropdown,
 #settings-blur-wrap,
@@ -90,10 +193,6 @@ header,
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-#status-area {
-  display: none;
 }
 
 .power-section {
@@ -314,11 +413,22 @@ label,
   flex: 0 0 auto;
 }
 
-body.is-unlock-mode-timer #settings-area > #timer-settings-group {
+#unlock-mode-settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: var(--unlock-mode-settings-min-height, 0);
+}
+
+#unlock-mode-settings-stack > * {
+  flex: 0 0 auto;
+}
+
+body.is-unlock-mode-timer #unlock-mode-settings-stack > #timer-settings-group {
   order: 1;
 }
 
-body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
+body.is-unlock-mode-timer #unlock-mode-settings-stack > #unlock-phrase-setting-dropdown {
   order: 2;
 }
 
@@ -399,7 +509,7 @@ body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
 }
 
 .site-list-editor {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .site-list-editor.is-invalid {
@@ -412,7 +522,6 @@ body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
   scrollbar-width: none;
 }
 
-.site-empty-row,
 .site-row,
 .site-add-row {
   min-height: 26px;
@@ -423,14 +532,6 @@ body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 4px;
-}
-
-.site-empty-row {
-  display: flex;
-  align-items: center;
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 12px;
 }
 
 .site-row-input {
@@ -481,38 +582,62 @@ body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
 }
 
 .site-add-row {
-  margin-top: 2px;
+  margin-top: 0;
+  position: relative;
 }
 
-#site-add-button,
+.site-add-actions {
+  display: flex;
+  align-items: flex-start;
+  min-height: 26px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .site-add-form {
   min-height: 26px;
 }
 
-#site-add-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
+#site-add-button,
+#site-current-button,
+#site-import-button {
+  display: inline-flex;
+  align-items: flex-start;
   border: 0;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
-  padding: 0;
+  font-weight: 500;
+  line-height: 1;
+  padding: 5px 0;
   text-align: left;
   cursor: pointer;
   transition: color 150ms ease;
 }
 
-#site-add-button span {
-  color: var(--dim);
-  font-size: 18px;
-  line-height: 1;
+#site-add-button:hover,
+#site-current-button:hover,
+#site-import-button:hover {
+  color: var(--text-soft);
 }
 
-#site-add-button:hover {
+#site-add-button.is-active,
+#site-import-button.is-active {
   color: var(--text-soft);
+}
+
+#site-current-button:disabled,
+#site-current-button:disabled:hover {
+  color: var(--dim);
+  cursor: default;
+}
+
+#site-import-button:focus-visible,
+#site-add-button:focus-visible,
+#site-current-button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.2);
+  outline-offset: 2px;
 }
 
 .site-add-form {
@@ -520,6 +645,7 @@ body.is-unlock-mode-timer #settings-area > #unlock-phrase-setting-dropdown {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  margin-top: 4px;
 }
 
 #site-add-input {
@@ -659,7 +785,7 @@ textarea {
 }
 
 #unlock-phrase-setting {
-  min-height: 28px;
+  min-height: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -670,7 +796,7 @@ textarea {
   line-height: 1.55;
   resize: none;
   overflow-y: hidden;
-  padding: 0 0 8px;
+  padding: 0;
 }
 
 #unlock-phrase-setting:focus {
@@ -859,7 +985,7 @@ textarea {
 #unlock-phrase-display {
   position: relative;
   width: 100%;
-  min-height: 32px;
+  min-height: 18px;
   max-height: 214px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -870,7 +996,7 @@ textarea {
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 300;
-  line-height: 1.85;
+  line-height: 1.5;
   overflow-wrap: break-word;
   pointer-events: none;
   scrollbar-width: none;

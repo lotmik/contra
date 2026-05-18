@@ -114,13 +114,13 @@ function getAdultListRefreshState() {
   };
 }
 
-function sanitizeList(value) {
+function sanitizeList(value, mode = "block") {
   if (!Array.isArray(value)) {
     return [];
   }
 
   const normalized = value
-    .map((item) => normalizeUrlRule(item))
+    .map((item) => normalizeUrlRule(item, mode))
     .filter((item) => typeof item === "string" && item.length > 0);
 
   return [...new Set(normalized)];
@@ -157,7 +157,12 @@ function isValidUrlHostname(hostname) {
   return hostname.includes(".") && !hostname.startsWith(".") && !hostname.endsWith(".");
 }
 
-function normalizeUrlRule(rawValue) {
+function normalizeRulePathname(pathname) {
+  const normalized = String(pathname || "/").replace(/\/+$/, "");
+  return normalized.length > 0 ? normalized : "/";
+}
+
+function normalizeUrlRule(rawValue, mode = "block") {
   const trimmed = String(rawValue || "").trim().toLowerCase();
   if (trimmed.length === 0 || /\s/.test(trimmed)) {
     return null;
@@ -171,7 +176,17 @@ function normalizeUrlRule(rawValue) {
   const candidate = hasScheme ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
-    return isValidUrlHostname(parsed.hostname.toLowerCase()) ? trimmed : null;
+    const hostname = parsed.hostname.toLowerCase();
+    if (!isValidUrlHostname(hostname)) {
+      return null;
+    }
+
+    if (sanitizeMode(mode) !== "allow") {
+      return trimmed;
+    }
+
+    const pathname = normalizeRulePathname(parsed.pathname);
+    return pathname === "/" ? hostname : `${hostname}${pathname}`;
   } catch {
     return null;
   }
@@ -496,12 +511,13 @@ function isSystemAllowedUrl(url) {
   return SYSTEM_ALLOWED_URL_PREFIXES.some((prefix) => lower.startsWith(prefix));
 }
 
-function urlMatchesRule(url, rule) {
+function urlMatchesRule(url, rule, mode = "block") {
   if (typeof url !== "string") {
     return false;
   }
 
-  const normalizedRule = normalizeUrlRule(rule);
+  const normalizedMode = sanitizeMode(mode);
+  const normalizedRule = normalizeUrlRule(rule, normalizedMode);
   if (!normalizedRule) {
     return false;
   }
@@ -516,7 +532,11 @@ function urlMatchesRule(url, rule) {
     const targetUrl = new URL(url);
     const ruleHostname = ruleUrl.hostname.toLowerCase();
     const hostname = targetUrl.hostname.toLowerCase();
-    if (!(hostname === ruleHostname || hostname.endsWith(`.${ruleHostname}`))) {
+    const exactHostnameMatch = hostname === ruleHostname;
+    const subdomainMatch = hostname.endsWith(`.${ruleHostname}`);
+    const allowsSubdomains = normalizedMode !== "allow" || ruleUrl.pathname === "/";
+    const hostnameMatches = allowsSubdomains ? exactHostnameMatch || subdomainMatch : exactHostnameMatch;
+    if (!hostnameMatches) {
       return false;
     }
 
@@ -528,16 +548,16 @@ function urlMatchesRule(url, rule) {
       return false;
     }
 
-    const rulePathname = ruleUrl.pathname || "/";
-    if (rulePathname !== "/") {
-      const targetPathname = targetUrl.pathname || "/";
+    const rulePathname = normalizeRulePathname(ruleUrl.pathname);
+    const targetPathname = normalizeRulePathname(targetUrl.pathname);
+    if (normalizedMode === "allow") {
+      if (rulePathname !== "/" && targetPathname !== rulePathname) {
+        return false;
+      }
+    } else if (rulePathname !== "/") {
       if (targetPathname !== rulePathname && !targetPathname.startsWith(`${rulePathname}/`)) {
         return false;
       }
-    }
-
-    if (ruleUrl.search && targetUrl.search !== ruleUrl.search) {
-      return false;
     }
 
     return true;
@@ -546,8 +566,8 @@ function urlMatchesRule(url, rule) {
   }
 }
 
-function matchesAny(url, rules) {
-  return rules.some((rule) => urlMatchesRule(url, rule));
+function matchesAny(url, rules, mode = "block") {
+  return rules.some((rule) => urlMatchesRule(url, rule, mode));
 }
 
 function isViolation(url) {
@@ -564,10 +584,10 @@ function isViolation(url) {
   }
 
   if (mode === "allow") {
-    return !matchesAny(url, whiteList);
+    return !matchesAny(url, whiteList, "allow");
   }
 
-  return matchesAny(url, blockList);
+  return matchesAny(url, blockList, "block");
 }
 
 function shouldCloseForBlocking(url) {
@@ -939,11 +959,11 @@ async function persistState() {
 
 function applySettingsPayload(payload = {}) {
   if ("blockList" in payload) {
-    blockList = sanitizeList(payload.blockList);
+    blockList = sanitizeList(payload.blockList, "block");
   }
 
   if ("whiteList" in payload) {
-    whiteList = sanitizeList(payload.whiteList);
+    whiteList = sanitizeList(payload.whiteList, "allow");
   }
 
   if ("adultContentBlockingEnabled" in payload) {
@@ -1034,11 +1054,11 @@ async function loadState() {
   }
 
   if (stored.blockList !== undefined) {
-    blockList = sanitizeList(stored.blockList);
+    blockList = sanitizeList(stored.blockList, "block");
   }
 
   if (stored.whiteList !== undefined) {
-    whiteList = sanitizeList(stored.whiteList);
+    whiteList = sanitizeList(stored.whiteList, "allow");
   }
 
   if (stored.adultContentBlockingEnabled !== undefined) {
