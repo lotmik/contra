@@ -4,6 +4,7 @@ const DEFAULT_UNLOCK_PHRASE = "I swear to God and to my future self that my inte
 const DEFAULT_TIMER_PRESETS = [15, 25, 45, 60];
 const TIMER_SELECTION_MODE_PRESET = "preset";
 const TIMER_SELECTION_MODE_MANUAL_END_TIME = "manualEndTime";
+const TIMER_PRESET_SHORTCUT_DOUBLE_PRESS_MS = 400;
 const TIMER_END_TIME_WARNING_MINUTES = 4 * 60;
 const TIMER_END_TIME_WARNING_TEXT = "Timer exceeds 4 hours. Proceed if desired";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
@@ -45,7 +46,7 @@ const state = {
   mode: "block",
   blockList: [],
   whiteList: [],
-  adultContentBlockingEnabled: false,
+  adultContentBlockingEnabled: true,
   adultContentForcedByPolicy: false,
   unlockMode: "timer",
   timerMinutes: DEFAULT_TIMER_PRESETS[1],
@@ -65,6 +66,7 @@ let timerTickId = null;
 let presetEndTimeTickId = null;
 let isUnlockChallengeOpen = false;
 let presetEditState = null;
+let lastPresetShortcut = { index: null, timestamp: 0 };
 let urlListSyncTimeoutId = null;
 let pendingUrlListSyncDraft = null;
 let urlListValidationTimeoutId = null;
@@ -118,6 +120,7 @@ const elements = {
   siteAddConfirm: document.getElementById("site-add-confirm"),
   adultContentControl: document.getElementById("adult-content-control"),
   adultContentToggle: document.getElementById("adult-content-toggle"),
+  adultContentStatus: document.getElementById("adult-content-status"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   unlockModeSegment: document.getElementById("unlock-mode-segment"),
   unlockModeSettingsStack: document.getElementById("unlock-mode-settings-stack"),
@@ -1025,10 +1028,19 @@ function updateSegmentedControl(segment, value) {
     return;
   }
 
-  for (const button of segment.querySelectorAll(".segment-option")) {
+  const buttons = Array.from(segment.querySelectorAll(".segment-option"));
+  let hasActiveButton = false;
+
+  for (const button of buttons) {
     const isActive = button.dataset.value === value;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-checked", String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
+    hasActiveButton = hasActiveButton || isActive;
+  }
+
+  if (!hasActiveButton && buttons[0]) {
+    buttons[0].tabIndex = 0;
   }
 }
 
@@ -1058,6 +1070,65 @@ function selectUnlockModeFromSegment(value) {
   elements.unlockModeSelect.value = nextMode;
   handleUnlockModeChange();
   syncSegmentedControlsFromState();
+}
+
+function getSegmentOptionButtons(segment) {
+  if (!segment) {
+    return [];
+  }
+
+  return Array.from(segment.querySelectorAll(".segment-option"));
+}
+
+function activateSegmentOption(button) {
+  if (!button) {
+    return;
+  }
+
+  if (button.closest("#mode-segment")) {
+    selectModeFromSegment(button.dataset.value);
+    return;
+  }
+
+  if (button.closest("#unlock-mode-segment")) {
+    selectUnlockModeFromSegment(button.dataset.value);
+  }
+}
+
+function handleSegmentOptionKeydown(event) {
+  const button = event.target.closest(".segment-option");
+  if (!button) {
+    return;
+  }
+
+  const segment = button.closest(".segmented-control");
+  const buttons = getSegmentOptionButtons(segment);
+  const currentIndex = buttons.indexOf(button);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  let targetIndex = currentIndex;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    targetIndex = (currentIndex + 1) % buttons.length;
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    targetIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+  } else if (event.key === "Home") {
+    targetIndex = 0;
+  } else if (event.key === "End") {
+    targetIndex = buttons.length - 1;
+  } else if (event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    activateSegmentOption(button);
+    return;
+  } else {
+    return;
+  }
+
+  event.preventDefault();
+  const targetButton = buttons[targetIndex];
+  targetButton?.focus();
+  activateSegmentOption(targetButton);
 }
 
 function buildUrlListValidationError(text) {
@@ -1465,7 +1536,7 @@ function updateTimerSettingsVisibility() {
 
   if (elements.unlockPhraseSettingSummary) {
     elements.unlockPhraseSettingSummary.textContent =
-      state.unlockMode === "timer" ? "Pause phrase" : "Unlock phrase";
+      state.unlockMode === "timer" ? "pause phrase" : "unlock phrase";
   }
 
   syncSettingsAccordionForMode("website");
@@ -1526,6 +1597,24 @@ function openUnlockChallenge() {
   focusUnlockControl();
 }
 
+function syncAdultContentControlFromState() {
+  if (!elements.adultContentControl || !elements.adultContentToggle) {
+    return;
+  }
+
+  const isEnabled = state.adultContentBlockingEnabled === true;
+  const isHidden = state.adultContentForcedByPolicy || state.isBlocking || !elements.settingsDropdown?.open;
+  elements.adultContentControl.hidden = isHidden;
+  elements.adultContentToggle.checked = isEnabled;
+  elements.adultContentToggle.disabled = state.adultContentForcedByPolicy || state.isBlocking;
+
+  if (elements.adultContentStatus) {
+    elements.adultContentStatus.textContent = isEnabled
+      ? "hide nsfw content enabled"
+      : "hide nsfw content disabled";
+  }
+}
+
 function syncFormFromState() {
   elements.modeSelect.value = state.mode;
   const formattedActiveList = formatUrls(state[getActiveListKey()], state.mode);
@@ -1535,11 +1624,7 @@ function syncFormFromState() {
     renderSiteRowsFromTextarea();
   }
   setUrlListValidationError(getUrlListValidationError(elements.urlList.value));
-  if (elements.adultContentControl) {
-    elements.adultContentControl.hidden = state.adultContentForcedByPolicy;
-  }
-  elements.adultContentToggle.checked = state.adultContentBlockingEnabled;
-  elements.adultContentToggle.disabled = state.adultContentForcedByPolicy;
+  syncAdultContentControlFromState();
   elements.unlockModeSelect.value = state.unlockMode;
   syncSegmentedControlsFromState();
   updateTimerSettingsVisibility();
@@ -1602,7 +1687,10 @@ async function loadStateFromStorage() {
   state.mode = sanitizeMode(stored.mode);
   state.blockList = sanitizeList(stored.blockList, "block");
   state.whiteList = sanitizeList(stored.whiteList, "allow");
-  state.adultContentBlockingEnabled = stored.adultContentBlockingEnabled === true;
+  state.adultContentBlockingEnabled =
+    stored.adultContentBlockingEnabled === undefined
+      ? true
+      : stored.adultContentBlockingEnabled === true;
   state.unlockMode = sanitizeUnlockMode(stored.unlockMode);
 
   const storedTimerMinutes = clampTimerMinutes(Number(stored.timerMinutes));
@@ -1682,6 +1770,7 @@ function updateLockedChallenge() {
   if (pauseRemaining > 0) {
     setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
     setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
+    elements.unlockConfirmButton.hidden = false;
     setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
     elements.unlockConfirmButton.textContent = "Resume";
     return;
@@ -1691,8 +1780,7 @@ function updateLockedChallenge() {
     if (state.timerExpired) {
       setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
       setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
-      setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
-      elements.unlockConfirmButton.textContent = "Confirm";
+      elements.unlockConfirmButton.hidden = true;
       return;
     }
 
@@ -1704,6 +1792,7 @@ function updateLockedChallenge() {
       });
       const phraseMatches = phraseInput === expectedPhrase;
       setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
+      elements.unlockConfirmButton.hidden = false;
       setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
       elements.unlockConfirmButton.textContent = "Pause 2 min";
       return;
@@ -1711,6 +1800,7 @@ function updateLockedChallenge() {
 
     setPhraseControls({ visible: false, label: "Unlock phrase", disabled: true });
     setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
+    elements.unlockConfirmButton.hidden = false;
     setUnlockConfirmButtonState({ disabled: true, phraseLocked: false });
     elements.unlockConfirmButton.textContent = "Wait for timer";
     return;
@@ -1723,6 +1813,7 @@ function updateLockedChallenge() {
     disabled: !phraseMatches,
     phraseLocked: !phraseMatches
   });
+  elements.unlockConfirmButton.hidden = false;
   setUnlockConfirmButtonState({ disabled: !phraseMatches, phraseLocked: !phraseMatches });
   elements.unlockConfirmButton.textContent = "Stop";
 }
@@ -1756,6 +1847,7 @@ function renderUi() {
   elements.body.classList.toggle("is-blocking", state.isBlocking);
   elements.powerToggle.checked = state.isBlocking;
   updatePowerToggleAvailability();
+  syncAdultContentControlFromState();
   elements.powerToggleAssistiveText.textContent = state.isBlocking
     ? "Stop blocking"
     : "Start blocking";
@@ -1779,6 +1871,7 @@ function renderUi() {
   elements.unlockPhraseInput.value = "";
   setPhraseControls({ visible: true, label: "Unlock phrase", disabled: false });
   setUnlockBreakButtonState({ visible: false, disabled: true, phraseLocked: false });
+  elements.unlockConfirmButton.hidden = false;
   setUnlockConfirmButtonState({ disabled: false, phraseLocked: false });
   elements.unlockConfirmButton.textContent = "Confirm";
 }
@@ -1946,7 +2039,13 @@ async function handlePowerToggleChange() {
   }
 
   if (state.isBlocking && !elements.powerToggle.checked) {
-    if (state.unlockMode === "timer" && state.timerExpired) {
+    const expectedPhrase = normalizePhrase(state.unlockPhrase);
+    const actualPhrase = normalizePhrase(elements.unlockPhraseInput.value);
+    const canStopBlocking =
+      (state.unlockMode === "timer" && state.timerExpired) ||
+      (state.unlockMode === "phrase" && actualPhrase === expectedPhrase);
+
+    if (canStopBlocking) {
       await stopBlocking();
       return;
     }
@@ -2295,6 +2394,21 @@ function beginPresetEditing(index, button) {
   input.select();
 }
 
+function openPresetEditor(index) {
+  const presetIndex = sanitizeSelectedPresetIndex(index);
+  if (presetIndex === null) {
+    return false;
+  }
+
+  const presetButton = elements.timerPresetButtons[presetIndex];
+  if (!presetButton || presetButton.hidden || presetButton.disabled) {
+    return false;
+  }
+
+  beginPresetEditing(presetIndex, presetButton);
+  return true;
+}
+
 function handleTimerPresetClick(event) {
   const presetButton = event.target.closest("[data-preset-index]");
   if (!presetButton) {
@@ -2363,6 +2477,7 @@ function handleAdultContentToggleChange() {
   }
 
   state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
+  syncAdultContentControlFromState();
   void browser.storage.local
     .set({ adultContentBlockingEnabled: state.adultContentBlockingEnabled })
     .catch((error) => {
@@ -2439,6 +2554,7 @@ function handleSettingsDropdownToggle() {
     syncSettingsAccordionForMode();
     reconcileUnlockPhraseSettingLayout();
   }
+  syncAdultContentControlFromState();
   scheduleUnlockModeSettingsMinHeightSync();
   updatePopupBottomPaddingState();
 }
@@ -2468,16 +2584,54 @@ function isSettingsShortcutKey(event) {
   return event.key === "s" || event.key === "S" || event.key === "ы" || event.key === "Ы";
 }
 
+function getTimerPresetShortcutIndex(event) {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return null;
+  }
+
+  if (!["1", "2", "3", "4"].includes(event.key)) {
+    return null;
+  }
+
+  return Number(event.key) - 1;
+}
+
 function handleGlobalKeydown(event) {
   if (!elements.settingsDropdown || elements.settingsDropdown.hidden || elements.settingsDropdown.hasAttribute("inert")) {
     return;
   }
 
-  if (!isSettingsShortcutKey(event) || event.metaKey || event.ctrlKey || event.altKey) {
+  if (isEditableTarget(event.target) || isEditableTarget(document.activeElement)) {
     return;
   }
 
-  if (isEditableTarget(event.target) || isEditableTarget(document.activeElement)) {
+  const presetShortcutIndex = getTimerPresetShortcutIndex(event);
+  if (
+    presetShortcutIndex !== null &&
+    elements.settingsDropdown.open &&
+    !elements.timerSettingsGroup.hidden &&
+    state.unlockMode === "timer" &&
+    !presetEditState &&
+    !event.repeat
+  ) {
+    event.preventDefault();
+    const now = Date.now();
+    const isDoublePress =
+      lastPresetShortcut.index === presetShortcutIndex &&
+      now - lastPresetShortcut.timestamp <= TIMER_PRESET_SHORTCUT_DOUBLE_PRESS_MS;
+
+    lastPresetShortcut = { index: presetShortcutIndex, timestamp: now };
+    if (isDoublePress) {
+      lastPresetShortcut = { index: null, timestamp: 0 };
+      openPresetEditor(presetShortcutIndex);
+      return;
+    }
+
+    selectTimerPreset(presetShortcutIndex);
+    return;
+  }
+
+  if (!isSettingsShortcutKey(event) || event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
 
@@ -2604,6 +2758,7 @@ async function initializePopup() {
   });
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.modeSegment?.addEventListener("click", handleModeSegmentClick);
+  elements.modeSegment?.addEventListener("keydown", handleSegmentOptionKeydown);
   elements.urlList.addEventListener("input", handleUrlListInput);
   elements.urlList.addEventListener("blur", handleUrlListBlur);
   elements.urlList.addEventListener("change", handleUrlListBlur);
@@ -2629,6 +2784,7 @@ async function initializePopup() {
   elements.adultContentToggle.addEventListener("change", handleAdultContentToggleChange);
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
   elements.unlockModeSegment?.addEventListener("click", handleUnlockModeSegmentClick);
+  elements.unlockModeSegment?.addEventListener("keydown", handleSegmentOptionKeydown);
   elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("keydown", handleUnlockPhraseSettingKeydown);
   elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);

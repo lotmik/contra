@@ -1,7 +1,7 @@
 let isBlocking = false;
 let blockList = [];
 let whiteList = [];
-let adultContentBlockingEnabled = false;
+let adultContentBlockingEnabled = true;
 let mode = "block";
 let unlockMode = "timer";
 let timerMinutes = 25;
@@ -1061,9 +1061,10 @@ async function loadState() {
     whiteList = sanitizeList(stored.whiteList, "allow");
   }
 
-  if (stored.adultContentBlockingEnabled !== undefined) {
-    adultContentBlockingEnabled = sanitizeBoolean(stored.adultContentBlockingEnabled, false);
-  }
+  adultContentBlockingEnabled =
+    stored.adultContentBlockingEnabled === undefined
+      ? true
+      : sanitizeBoolean(stored.adultContentBlockingEnabled, false);
 
   if (stored.mode !== undefined) {
     mode = sanitizeMode(stored.mode);
