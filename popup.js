@@ -1570,13 +1570,16 @@ function syncTimerControlsFromState() {
 }
 
 function updatePopupBottomPaddingState() {
-  const isPhraseSectionExpanded =
+  const isSettingsExpanded =
     Boolean(elements.settingsDropdown) &&
     !elements.settingsDropdown.hidden &&
     !elements.settingsDropdown.hasAttribute("inert") &&
-    elements.settingsDropdown.open &&
+    elements.settingsDropdown.open;
+  const isPhraseSectionExpanded =
+    isSettingsExpanded &&
     Boolean(elements.unlockPhraseSettingDropdown?.open);
 
+  elements.popupRoot?.classList.toggle("is-settings-expanded", isSettingsExpanded);
   elements.popupRoot?.classList.toggle("is-phrase-settings-expanded", isPhraseSectionExpanded);
 }
 

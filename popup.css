@@ -79,6 +79,10 @@ body {
   border-bottom-left-radius: 0;
 }
 
+#popup-root.is-settings-expanded {
+  padding-bottom: 12px;
+}
+
 #site-import-panel {
   position: absolute;
   top: 0;
@@ -375,6 +379,7 @@ label,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 20px;
   gap: 20px;
 }
 
