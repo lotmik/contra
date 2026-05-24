@@ -81,7 +81,23 @@
           </div>
 
           <details id="settings-dropdown">
-            <summary id="settings-summary" aria-label="settings" data-label="settings"></summary>
+            <summary id="settings-summary" aria-label="settings">
+              <span class="settings-summary-actions">
+                <button id="collapsed-site-current-button" type="button" aria-label="add to blocklist" hidden>
+                  <svg class="site-action-icon site-action-icon--material" viewBox="0 0 24 24" aria-hidden="true">
+                    <path id="collapsed-site-current-button-icon-path" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z" />
+                  </svg>
+                  <span id="collapsed-site-current-button-label" class="site-action-label">add to blocklist</span>
+                </button>
+                <span class="settings-summary-label">
+                  <svg class="site-action-icon settings-summary-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 15.25a3.25 3.25 0 1 0 0-6.5 3.25 3.25 0 0 0 0 6.5Z" />
+                    <path d="M19.1 13.5a7.7 7.7 0 0 0 0-3l2.1-1.55-2-3.46-2.5 1a7.5 7.5 0 0 0-2.6-1.5L13.75 2h-3.5l-.35 2.99a7.5 7.5 0 0 0-2.6 1.5l-2.5-1-2 3.46L4.9 10.5a7.7 7.7 0 0 0 0 3l-2.1 1.55 2 3.46 2.5-1a7.5 7.5 0 0 0 2.6 1.5l.35 2.99h3.5l.35-2.99a7.5 7.5 0 0 0 2.6-1.5l2.5 1 2-3.46-2.1-1.55Z" />
+                  </svg>
+                  <span class="site-action-label">settings</span>
+                </span>
+              </span>
+            </summary>
             <div id="settings-blur-wrap">
               <section id="settings-area" aria-label="settings">
                 <div class="control-group">
@@ -102,11 +118,6 @@
                     <div id="site-list-editor" class="site-list-editor">
                       <div id="site-row-scroll" class="site-row-scroll" aria-label="configured sites"></div>
                       <div id="site-add-row" class="site-add-row">
-                        <div class="site-add-actions">
-                          <button id="site-add-button" type="button">add site</button>
-                          <button id="site-current-button" type="button">add this site</button>
-                          <button id="site-import-button" type="button" aria-pressed="false">import</button>
-                        </div>
                         <div id="site-add-form" class="site-add-form" hidden>
                           <input
                             id="site-add-input"
@@ -119,6 +130,31 @@
                             placeholder="example.com"
                           />
                           <button id="site-add-confirm" type="button">add</button>
+                        </div>
+                        <div class="site-add-actions">
+                          <button id="site-add-button" type="button" aria-label="add site">
+                            <svg class="site-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12 3.75a8.25 8.25 0 1 0 0 16.5a8.25 8.25 0 0 0 0-16.5Z" />
+                              <path d="M4.75 12h14.5" />
+                              <path d="M12 3.75c2.1 2.06 3.25 5.03 3.25 8.25S14.1 18.19 12 20.25c-2.1-2.06-3.25-5.03-3.25-8.25S9.9 5.81 12 3.75Z" />
+                            </svg>
+                            <span class="site-action-label">add site</span>
+                          </button>
+                          <button id="site-current-button" type="button" aria-label="add this site">
+                            <svg class="site-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12 5v14" />
+                              <path d="M5 12h14" />
+                            </svg>
+                            <span id="site-current-button-label" class="site-action-label">add this site</span>
+                          </button>
+                          <button id="site-import-button" type="button" aria-pressed="false" aria-label="import">
+                            <svg class="site-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M12 4.75v9.5" />
+                              <path d="m8.75 11 3.25 3.25L15.25 11" />
+                              <path d="M5.75 16.25v1a1 1 0 0 0 1 1h10.5a1 1 0 0 0 1-1v-1" />
+                            </svg>
+                            <span class="site-action-label">import</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -187,15 +223,15 @@
                   </div>
                 </div>
 
-                <section id="adult-content-control" aria-label="hide nsfw content">
+                <section id="adult-content-control" aria-label="block nsfw sites">
                   <input
                     id="adult-content-toggle"
                     name="adult-content-toggle"
                     type="checkbox"
                   />
                   <label id="adult-content-latch" for="adult-content-toggle">
-                    <span class="adult-content-title">hide nsfw content</span>
-                    <span id="adult-content-status" class="sr-only">hide nsfw content enabled</span>
+                    <span class="adult-content-title">block nsfw sites</span>
+                    <span id="adult-content-status" class="sr-only">block nsfw sites enabled</span>
                     <span class="adult-content-latch-visual" aria-hidden="true">
                       <span class="adult-content-latch-core"></span>
                     </span>

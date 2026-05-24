@@ -12,9 +12,18 @@ const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
 const UNLOCK_PHRASE_SETTING_MIN_HEIGHT = 0;
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
+const COLLAPSED_CURRENT_TAB_SAVED_FEEDBACK_MS = 5000;
 const CURRENT_TAB_RULE_LABELS = {
   block: "add this site",
   allow: "add this page"
+};
+const COLLAPSED_CURRENT_TAB_LABELS = {
+  block: "add to blocklist",
+  allow: "add to allowlist"
+};
+const COLLAPSED_CURRENT_TAB_ICON_PATHS = {
+  add: "M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z",
+  saved: "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
 };
 const CURRENT_TAB_SUPPORTED_PROTOCOLS = new Set(["http:", "https:"]);
 const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking", "adultBlockForced", "adult"];
@@ -77,6 +86,7 @@ let isMeasuringUnlockModeSettingsHeight = false;
 let skipNextUnlockPhraseSettingBlurSave = false;
 let currentTabUrl = "";
 let canAddCurrentTab = false;
+let collapsedCurrentTabSavedFeedbackTimeoutId = null;
 
 const elements = {
   body: document.body,
@@ -100,6 +110,9 @@ const elements = {
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
   settingsDropdown: document.getElementById("settings-dropdown"),
   settingsSummary: document.getElementById("settings-summary"),
+  collapsedSiteCurrentButton: document.getElementById("collapsed-site-current-button"),
+  collapsedSiteCurrentButtonLabel: document.getElementById("collapsed-site-current-button-label"),
+  collapsedSiteCurrentButtonIconPath: document.getElementById("collapsed-site-current-button-icon-path"),
   websiteSettingsDropdown: document.getElementById("website-settings-dropdown"),
   websiteSettingsSummary: document.getElementById("website-settings-summary"),
   modeSelect: document.getElementById("mode-select"),
@@ -110,6 +123,7 @@ const elements = {
   siteRowScroll: document.getElementById("site-row-scroll"),
   siteAddButton: document.getElementById("site-add-button"),
   siteCurrentButton: document.getElementById("site-current-button"),
+  siteCurrentButtonLabel: document.getElementById("site-current-button-label"),
   siteImportButton: document.getElementById("site-import-button"),
   siteImportPanel: document.getElementById("site-import-panel"),
   siteImportInput: document.getElementById("site-import-input"),
@@ -693,8 +707,21 @@ function normalizeRulePathname(pathname) {
   return normalized.length > 0 ? normalized : "/";
 }
 
+function normalizeHostname(hostname) {
+  return String(hostname || "").toLowerCase().replace(/\.+$/, "");
+}
+
+function normalizeBlocklistHostname(hostname) {
+  const normalized = normalizeHostname(hostname);
+  if (normalized.startsWith("www.") && normalized.length > 4) {
+    return normalized.slice(4);
+  }
+
+  return normalized;
+}
+
 function normalizeUrlRule(rawValue, mode = "block") {
-  const trimmed = String(rawValue || "").trim().toLowerCase();
+  const trimmed = String(rawValue || "").trim();
   if (trimmed.length === 0 || /\s/.test(trimmed)) {
     return null;
   }
@@ -707,17 +734,23 @@ function normalizeUrlRule(rawValue, mode = "block") {
   const candidate = hasScheme ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
-    const hostname = parsed.hostname.toLowerCase();
+    const hostname =
+      sanitizeMode(mode) === "allow"
+        ? normalizeHostname(parsed.hostname)
+        : normalizeBlocklistHostname(parsed.hostname);
     if (!isValidUrlHostname(hostname)) {
       return null;
     }
 
+    const pathname = normalizeRulePathname(parsed.pathname);
     if (sanitizeMode(mode) !== "allow") {
-      return trimmed;
+      return pathname === "/" ? hostname : `${hostname}${pathname}`;
     }
 
-    const pathname = normalizeRulePathname(parsed.pathname);
-    return pathname === "/" ? hostname : `${hostname}${pathname}`;
+    const search = parsed.search || "";
+    return pathname === "/" && search.length === 0
+      ? hostname
+      : `${hostname}${pathname}${search}`;
   } catch {
     return null;
   }
@@ -735,6 +768,10 @@ function getCurrentTabButtonLabel(mode = state.mode) {
   return CURRENT_TAB_RULE_LABELS[sanitizeMode(mode)];
 }
 
+function getCollapsedCurrentTabButtonLabel(mode = state.mode) {
+  return COLLAPSED_CURRENT_TAB_LABELS[sanitizeMode(mode)];
+}
+
 function currentTabRuleExistsInEditor(mode = state.mode) {
   const nextRule = getCurrentTabRuleForMode(mode);
   if (!nextRule) {
@@ -744,14 +781,53 @@ function currentTabRuleExistsInEditor(mode = state.mode) {
   return getTrimmedUrlEditorLines().some((line) => normalizeUrlRule(line, mode) === nextRule);
 }
 
+function isCollapsedCurrentTabSavedFeedbackActive() {
+  return collapsedCurrentTabSavedFeedbackTimeoutId !== null;
+}
+
+function setCollapsedCurrentTabButtonSavedState(isSaved) {
+  if (!elements.collapsedSiteCurrentButtonIconPath) {
+    return;
+  }
+
+  elements.collapsedSiteCurrentButtonIconPath.setAttribute(
+    "d",
+    isSaved ? COLLAPSED_CURRENT_TAB_ICON_PATHS.saved : COLLAPSED_CURRENT_TAB_ICON_PATHS.add
+  );
+}
+
+function clearCollapsedCurrentTabSavedFeedback() {
+  if (collapsedCurrentTabSavedFeedbackTimeoutId !== null) {
+    clearTimeout(collapsedCurrentTabSavedFeedbackTimeoutId);
+    collapsedCurrentTabSavedFeedbackTimeoutId = null;
+  }
+
+  setCollapsedCurrentTabButtonSavedState(false);
+}
+
+function showCollapsedCurrentTabSavedFeedback() {
+  clearCollapsedCurrentTabSavedFeedback();
+  setCollapsedCurrentTabButtonSavedState(true);
+  collapsedCurrentTabSavedFeedbackTimeoutId = window.setTimeout(() => {
+    collapsedCurrentTabSavedFeedbackTimeoutId = null;
+    setCollapsedCurrentTabButtonSavedState(false);
+    updateCurrentTabButton();
+  }, COLLAPSED_CURRENT_TAB_SAVED_FEEDBACK_MS);
+  updateCurrentTabButton();
+}
+
 function updateCurrentTabButton() {
-  if (!elements.siteCurrentButton) {
+  if (!elements.siteCurrentButton && !elements.collapsedSiteCurrentButton) {
     return;
   }
 
   const label = getCurrentTabButtonLabel();
   const isDuplicate = currentTabRuleExistsInEditor();
-  elements.siteCurrentButton.textContent = label;
+  const isSavedFeedbackActive = isCollapsedCurrentTabSavedFeedbackActive();
+  if (elements.siteCurrentButtonLabel) {
+    elements.siteCurrentButtonLabel.textContent = label;
+  }
+  elements.siteCurrentButton.setAttribute("aria-label", label);
   elements.siteCurrentButton.disabled = !canAddCurrentTab || isDuplicate;
   elements.siteCurrentButton.title = !canAddCurrentTab
     ? "Only regular websites can be added"
@@ -760,6 +836,33 @@ function updateCurrentTabButton() {
         ? "This page is already added"
         : "This site is already added"
       : "";
+
+  if (elements.collapsedSiteCurrentButtonLabel) {
+    elements.collapsedSiteCurrentButtonLabel.textContent = getCollapsedCurrentTabButtonLabel();
+  }
+  if (elements.collapsedSiteCurrentButton) {
+    const collapsedLabel = getCollapsedCurrentTabButtonLabel();
+    elements.collapsedSiteCurrentButton.setAttribute(
+      "aria-label",
+      isSavedFeedbackActive
+        ? state.mode === "allow"
+          ? "added to allowlist"
+          : "added to blocklist"
+        : collapsedLabel
+    );
+    elements.collapsedSiteCurrentButton.disabled = !canAddCurrentTab || isSavedFeedbackActive || isDuplicate;
+    elements.collapsedSiteCurrentButton.title = isSavedFeedbackActive ? "" : elements.siteCurrentButton?.title || "";
+    elements.collapsedSiteCurrentButton.hidden =
+      !isSavedFeedbackActive &&
+      (
+        !canAddCurrentTab ||
+        isDuplicate ||
+        state.isBlocking ||
+        elements.settingsDropdown?.open === true ||
+        elements.settingsDropdown?.hidden === true ||
+        elements.settingsDropdown?.hasAttribute("inert") === true
+      );
+  }
 }
 
 function buildCurrentTabRule(url, mode = state.mode) {
@@ -771,7 +874,7 @@ function buildCurrentTabRule(url, mode = state.mode) {
 
     const candidate =
       sanitizeMode(mode) === "allow"
-        ? `${parsed.hostname}${normalizeRulePathname(parsed.pathname)}`
+        ? `${parsed.hostname}${normalizeRulePathname(parsed.pathname)}${parsed.search || ""}`
         : parsed.hostname;
 
     return normalizeUrlRule(candidate, mode);
@@ -789,6 +892,7 @@ function getCurrentTabRuleForMode(mode = state.mode) {
 }
 
 async function refreshCurrentTabState() {
+  clearCollapsedCurrentTabSavedFeedback();
   currentTabUrl = "";
   canAddCurrentTab = false;
 
@@ -1002,7 +1106,8 @@ function commitSiteAddInput() {
   focusSiteAddInput();
 }
 
-function commitCurrentTabRule() {
+async function commitCurrentTabRule(options = {}) {
+  const { showCollapsedSavedFeedback = false } = options;
   const nextRule = getCurrentTabRuleForMode();
   if (!nextRule) {
     return;
@@ -1019,7 +1124,13 @@ function commitCurrentTabRule() {
   renderSiteRowsFromTextarea();
   scrollSiteRowsToLatest();
   handleUrlListInput();
-  flushPendingUrlListSync();
+  await flushPendingUrlListSync({
+    errorLabel: "Failed to save current tab rule",
+    rethrow: true
+  });
+  if (showCollapsedSavedFeedback) {
+    showCollapsedCurrentTabSavedFeedback();
+  }
 }
 
 
@@ -1211,11 +1322,15 @@ function applyUrlListDraftToState(draft) {
   return mode;
 }
 
-function persistUrlListDraft(draft, errorLabel = "Failed to save URL list") {
+function persistUrlListDraft(draft, errorLabel = "Failed to save URL list", options = {}) {
+  const { rethrow = false } = options;
   const mode = applyUrlListDraftToState(draft);
   const payload = mode === "allow" ? { whiteList: state.whiteList } : { blockList: state.blockList };
-  void browser.storage.local.set(payload).catch((error) => {
+  return browser.storage.local.set(payload).catch((error) => {
     console.error(errorLabel, error);
+    if (rethrow) {
+      throw error;
+    }
   });
 }
 
@@ -1249,7 +1364,7 @@ function scheduleUrlListSync() {
   }, URL_LIST_SYNC_DEBOUNCE_MS);
 }
 
-function flushPendingUrlListSync() {
+function flushPendingUrlListSync(options = {}) {
   if (urlListSyncTimeoutId !== null) {
     clearTimeout(urlListSyncTimeoutId);
     urlListSyncTimeoutId = null;
@@ -1257,10 +1372,15 @@ function flushPendingUrlListSync() {
 
   const draft = pendingUrlListSyncDraft ?? buildUrlListSyncDraft();
   pendingUrlListSyncDraft = null;
-  persistUrlListDraft(draft);
+  const persistPromise = persistUrlListDraft(
+    draft,
+    options.errorLabel || "Failed to save URL list",
+    options
+  );
   setUrlListValidationError("");
   scheduleUrlListValidation(draft.text);
   updatePowerToggleAvailability();
+  return persistPromise;
 }
 
 function formatDuration(totalMs) {
@@ -1610,8 +1730,8 @@ function syncAdultContentControlFromState() {
 
   if (elements.adultContentStatus) {
     elements.adultContentStatus.textContent = isEnabled
-      ? "hide nsfw content enabled"
-      : "hide nsfw content disabled";
+      ? "block nsfw sites enabled"
+      : "block nsfw sites disabled";
   }
 }
 
@@ -2031,10 +2151,12 @@ async function handlePowerToggleChange() {
       clearPendingUrlListValidation();
       setUrlListValidationError(validationError);
       elements.powerToggle.checked = false;
+      elements.powerToggle.blur();
       return;
     }
 
     await startBlocking();
+    elements.powerToggle.blur();
     return;
   }
 
@@ -2047,15 +2169,18 @@ async function handlePowerToggleChange() {
 
     if (canStopBlocking) {
       await stopBlocking();
+      elements.powerToggle.blur();
       return;
     }
 
     elements.powerToggle.checked = true;
     openUnlockChallenge();
+    elements.powerToggle.blur();
     return;
   }
 
   elements.powerToggle.checked = state.isBlocking;
+  elements.powerToggle.blur();
 }
 
 async function handleUnlockConfirmClick() {
@@ -2224,7 +2349,21 @@ function handleSiteAddButtonClick() {
 }
 
 function handleSiteCurrentButtonClick() {
-  commitCurrentTabRule();
+  void commitCurrentTabRule().catch((error) => {
+    console.error("Failed to save current tab rule", error);
+  });
+}
+
+function handleCollapsedSiteCurrentButtonClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.currentTarget.disabled) {
+    return;
+  }
+
+  void commitCurrentTabRule({ showCollapsedSavedFeedback: true }).catch((error) => {
+    console.error("Failed to save current tab rule", error);
+  });
 }
 
 function handleSiteImportInputKeydown(event) {
@@ -2473,11 +2612,13 @@ function handleAdultContentToggleChange() {
   if (state.adultContentForcedByPolicy) {
     state.adultContentBlockingEnabled = true;
     syncFormFromState();
+    elements.adultContentToggle.blur();
     return;
   }
 
   state.adultContentBlockingEnabled = elements.adultContentToggle.checked === true;
   syncAdultContentControlFromState();
+  elements.adultContentToggle.blur();
   void browser.storage.local
     .set({ adultContentBlockingEnabled: state.adultContentBlockingEnabled })
     .catch((error) => {
@@ -2554,6 +2695,7 @@ function handleSettingsDropdownToggle() {
     syncSettingsAccordionForMode();
     reconcileUnlockPhraseSettingLayout();
   }
+  updateCurrentTabButton();
   syncAdultContentControlFromState();
   scheduleUnlockModeSettingsMinHeightSync();
   updatePopupBottomPaddingState();
@@ -2577,7 +2719,29 @@ function isEditableTarget(target) {
     return false;
   }
 
-  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+  if (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "SELECT") {
+    return true;
+  }
+
+  if (target.tagName !== "INPUT") {
+    return false;
+  }
+
+  const input = /** @type {HTMLInputElement} */ (target);
+  const nonTextInputTypes = new Set([
+    "button",
+    "checkbox",
+    "color",
+    "file",
+    "hidden",
+    "image",
+    "radio",
+    "range",
+    "reset",
+    "submit"
+  ]);
+
+  return !nonTextInputTypes.has((input.type || "").toLowerCase());
 }
 
 function isSettingsShortcutKey(event) {
@@ -2768,6 +2932,7 @@ async function initializePopup() {
   elements.siteRowScroll?.addEventListener("click", handleSiteRowClick);
   elements.siteAddButton?.addEventListener("click", handleSiteAddButtonClick);
   elements.siteCurrentButton?.addEventListener("click", handleSiteCurrentButtonClick);
+  elements.collapsedSiteCurrentButton?.addEventListener("click", handleCollapsedSiteCurrentButtonClick);
   elements.siteAddForm?.addEventListener("focusout", handleSiteAddFormFocusOut);
   elements.siteImportButton?.addEventListener("click", handleSiteImportButtonClick);
   elements.siteImportApply?.addEventListener("click", importSiteListFromPanel);
@@ -2812,6 +2977,7 @@ async function initializePopup() {
     syncUrlListFromSiteRows();
     flushPendingUrlListSync();
     clearPendingUrlListValidation();
+    clearCollapsedCurrentTabSavedFeedback();
     stopPresetEndTimeTicker();
     if (presetEditState) {
       stopPresetEditing(true);

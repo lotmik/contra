@@ -77,16 +77,26 @@ These are mandatory for all agents in this repo.
 
 ### "git flow" command meaning
 If user says **`git flow`**, interpret it as:
+1. Commit current changes (only what should ship).
+2. Push current branch state to `main` on `origin`.
+
+Default sequence:
+1. `git add -A`
+2. `git commit -m "<changes>"`
+3. `git push origin main`
+
+### "release flow" command meaning
+If user says **`release flow`**, interpret it as versioned git flow:
 1. Update `manifest.json` version before committing:
-   - if the user says exactly `git flow`, increment the last numeric version segment by 1 (for example `0.5.5` -> `0.5.6`)
-   - if the user says `git flow <version>`, set `manifest.json` version to that explicit value
+   - if the user says exactly `release flow`, increment the last numeric version segment by 1 (for example `0.5.5` -> `0.5.6`)
+   - if the user says `release flow <version>`, set `manifest.json` version to that explicit value
 2. Commit current changes (only what should ship).
 3. Push current branch state to `main` on `origin`.
 
 Default sequence:
 1. update `manifest.json` version
 2. `git add -A`
-3. `git commit -m "<clear summary>"`
+3. `git commit -m "<version>: <changes>"`
 4. `git push origin main`
 
 If there are blockers (conflicts, rejected push, missing auth), report exact blocker and next action.

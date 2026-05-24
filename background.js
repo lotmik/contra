@@ -162,8 +162,21 @@ function normalizeRulePathname(pathname) {
   return normalized.length > 0 ? normalized : "/";
 }
 
+function normalizeHostname(hostname) {
+  return String(hostname || "").toLowerCase().replace(/\.+$/, "");
+}
+
+function normalizeBlocklistHostname(hostname) {
+  const normalized = normalizeHostname(hostname);
+  if (normalized.startsWith("www.") && normalized.length > 4) {
+    return normalized.slice(4);
+  }
+
+  return normalized;
+}
+
 function normalizeUrlRule(rawValue, mode = "block") {
-  const trimmed = String(rawValue || "").trim().toLowerCase();
+  const trimmed = String(rawValue || "").trim();
   if (trimmed.length === 0 || /\s/.test(trimmed)) {
     return null;
   }
@@ -176,17 +189,23 @@ function normalizeUrlRule(rawValue, mode = "block") {
   const candidate = hasScheme ? trimmed : `https://${trimmed}`;
   try {
     const parsed = new URL(candidate);
-    const hostname = parsed.hostname.toLowerCase();
+    const hostname =
+      sanitizeMode(mode) === "allow"
+        ? normalizeHostname(parsed.hostname)
+        : normalizeBlocklistHostname(parsed.hostname);
     if (!isValidUrlHostname(hostname)) {
       return null;
     }
 
+    const pathname = normalizeRulePathname(parsed.pathname);
     if (sanitizeMode(mode) !== "allow") {
-      return trimmed;
+      return pathname === "/" ? hostname : `${hostname}${pathname}`;
     }
 
-    const pathname = normalizeRulePathname(parsed.pathname);
-    return pathname === "/" ? hostname : `${hostname}${pathname}`;
+    const search = parsed.search || "";
+    return pathname === "/" && search.length === 0
+      ? hostname
+      : `${hostname}${pathname}${search}`;
   } catch {
     return null;
   }
@@ -530,8 +549,14 @@ function urlMatchesRule(url, rule, mode = "block") {
   try {
     const ruleUrl = new URL(candidateRule);
     const targetUrl = new URL(url);
-    const ruleHostname = ruleUrl.hostname.toLowerCase();
-    const hostname = targetUrl.hostname.toLowerCase();
+    const ruleHostname =
+      normalizedMode === "allow"
+        ? normalizeHostname(ruleUrl.hostname)
+        : normalizeBlocklistHostname(ruleUrl.hostname);
+    const hostname =
+      normalizedMode === "allow"
+        ? normalizeHostname(targetUrl.hostname)
+        : normalizeBlocklistHostname(targetUrl.hostname);
     const exactHostnameMatch = hostname === ruleHostname;
     const subdomainMatch = hostname.endsWith(`.${ruleHostname}`);
     const allowsSubdomains = normalizedMode !== "allow" || ruleUrl.pathname === "/";
@@ -552,6 +577,11 @@ function urlMatchesRule(url, rule, mode = "block") {
     const targetPathname = normalizeRulePathname(targetUrl.pathname);
     if (normalizedMode === "allow") {
       if (rulePathname !== "/" && targetPathname !== rulePathname) {
+        return false;
+      }
+
+      const ruleSearch = ruleUrl.search || "";
+      if (ruleSearch.length > 0 && targetUrl.search !== ruleSearch) {
         return false;
       }
     } else if (rulePathname !== "/") {
