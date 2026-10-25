@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-test("typing the unlock phrase keeps the native input and caret intact", () => {
+test("blocked phrase renders per-character feedback and a custom caret", () => {
   const popupSource = fs.readFileSync(path.join(__dirname, "..", "popup.js"), "utf8");
   const sourceWithoutStartup = popupSource.slice(0, popupSource.lastIndexOf("void initializePopup().catch"));
   const elements = new Map();
@@ -17,41 +17,52 @@ test("typing the unlock phrase keeps the native input and caret intact", () => {
         hidden: false,
         disabled: false,
         style: {},
-        classList: { toggle() {} },
+        classList: { toggle() {}, add() {}, remove() {} },
         blur() {}
       });
     }
     return elements.get(id);
   };
+  const display = getElement("unlock-phrase-display");
+  display.children = [];
+  display.replaceChildren = (fragment) => { display.children = fragment.children; };
+  display.querySelector = (selector) => {
+    if (selector === ".typing-char:last-of-type") return display.children.at(-1);
+    const match = selector.match(/data-(start|end)="(\d+)"/);
+    return match ? display.children.find((node) => node.dataset[match[1]] === match[2]) : null;
+  };
+  display.getBoundingClientRect = () => ({ left: 0, top: 0 });
   const document = {
     body: getElement("body"),
     getElementById: getElement,
     querySelector: getElement,
     querySelectorAll: () => [],
-    createElement() { throw new Error("Typing should not rebuild character nodes"); }
+    createElement() {
+      return {
+        dataset: {},
+        getBoundingClientRect() {
+          const left = Number(this.dataset.start) * 8;
+          return { left, right: left + 8, top: 0, height: 20 };
+        }
+      };
+    },
+    createDocumentFragment() {
+      return { children: [], appendChild(node) { this.children.push(node); } };
+    }
   };
-  const context = vm.createContext({ document, URL });
+  const context = vm.createContext({ document, URL, getComputedStyle: () => ({ lineHeight: "20px" }) });
   vm.runInContext(sourceWithoutStartup, context);
   const input = getElement("unlock-phrase-input");
-  const reference = getElement("unlock-phrase-display");
-
-  vm.runInContext('state.unlockPhrase = "Stay focused"; syncUnlockPhraseReference()', context);
-  assert.equal(reference.textContent, "Stay focused");
-  input.value = "Stay focus";
-  input.selectionStart = 6;
-  vm.runInContext("handlePhraseInput()", context);
-  assert.equal(input.value, "Stay focus");
-  assert.equal(input.selectionStart, 6);
-  assert.equal(reference.textContent, "Stay focused");
-
-  vm.runInContext('state.isBlocking = true; state.unlockMode = "phrase"', context);
-  vm.runInContext("handlePhraseInput()", context);
-  assert.equal(getElement("unlock-confirm-btn").disabled, true);
-  input.value = "Stay focused";
+  const caret = getElement("unlock-phrase-caret");
+  vm.runInContext('state.unlockPhrase = "cat dog"', context);
+  input.value = "cat dXg";
   input.selectionStart = input.value.length;
-  vm.runInContext("handlePhraseInput()", context);
-  assert.equal(getElement("unlock-confirm-btn").disabled, false);
-  assert.equal(input.selectionStart, input.value.length);
+  vm.runInContext("renderPhraseTypingPreview()", context);
+  assert.equal(display.children.map((node) => node.textContent).join(""), "cat dog");
+  assert.equal(display.children[5].className, "typing-char incorrect");
+  assert.equal(display.children[6].className, "typing-char correct");
+  assert.equal(caret.hidden, false);
+  assert.match(caret.style.transform, /^translate\(/);
 });
 
 test("startup menu saves off, blocklist, and whitelist choices", () => {

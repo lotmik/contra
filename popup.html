@@ -59,7 +59,6 @@
 
             <label for="unlock-phrase-input">unlock phrase</label>
             <div id="unlock-typing-surface">
-              <div id="unlock-phrase-display" aria-label="phrase to type"></div>
               <input
                 id="unlock-phrase-input"
                 name="unlock-phrase-input"
@@ -68,8 +67,12 @@
                 autocapitalize="off"
                 autocorrect="off"
                 spellcheck="false"
-                placeholder="type the phrase above"
               />
+              <div
+                id="unlock-phrase-display"
+                aria-label="type unlock phrase"
+              ></div>
+              <span id="unlock-phrase-caret" aria-hidden="true"></span>
             </div>
             <div id="unlock-action-row">
               <button id="unlock-break-btn" type="button" hidden>break 2 min</button>

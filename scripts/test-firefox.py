@@ -355,9 +355,68 @@ def main():
             "warning.hidden = false; warning.textContent = 'Invalid end time'"
         )
         assert_settings_layout(driver, "website", allow_area_scroll=True)
+
+        driver.execute_async_script(
+            "browser.storage.local.set({isBlocking: true, unlockMode: 'phrase',"
+            "unlockPhrase: 'Stay focused', pauseUntil: 0, testDisableUntil: 0})"
+            ".then(arguments[arguments.length - 1])"
+        )
+        driver.refresh()
+        typing_surface = WebDriverWait(driver, 10).until(
+            lambda browser: (
+                surface if (surface := browser.find_element(
+                    By.ID, "unlock-typing-surface"
+                )).is_displayed() else False
+            )
+        )
+        phrase_input = driver.find_element(By.ID, "unlock-phrase-input")
+        assert driver.execute_script(
+            "return getComputedStyle(arguments[0]).opacity", phrase_input
+        ) == "0", "Blocked phrase input became a visible text field"
+        assert driver.find_element(By.ID, "unlock-phrase-display").text == "Stay focused"
+        typing_surface.click()
+        assert driver.switch_to.active_element.get_attribute("id") == "unlock-phrase-input"
+        ActionChains(driver).send_keys("StaX").perform()
+        incorrect = driver.find_elements(By.CSS_SELECTOR, "#unlock-phrase-display .typing-char.incorrect")
+        assert len(incorrect) == 1 and incorrect[0].text == "y", "Wrong character feedback failed"
+        caret = driver.find_element(By.ID, "unlock-phrase-caret")
+        assert not caret.get_property("hidden")
+        assert "translate(" in caret.get_attribute("style")
+        if screenshot_dir:
+            save_white_debug_screenshot(
+                driver, Path(screenshot_dir) / "blocked-phrase-white-backdrop.png"
+            )
+        ActionChains(driver).send_keys(Keys.BACKSPACE, "y focused").perform()
+        assert phrase_input.get_attribute("value") == "Stay focused"
+        assert driver.find_element(By.ID, "unlock-confirm-btn").is_enabled()
+
+        driver.execute_async_script(
+            "browser.storage.local.set({isBlocking: true, unlockMode: 'timer',"
+            "unlockPhrase: 'Take a break', timerExpired: false,"
+            "lockEndTime: Date.now() + 600000, pausePositiveEnabled: true, pauseUntil: 0})"
+            ".then(arguments[arguments.length - 1])"
+        )
+        driver.refresh()
+        typing_surface = WebDriverWait(driver, 10).until(
+            lambda browser: (
+                surface if (surface := browser.find_element(
+                    By.ID, "unlock-typing-surface"
+                )).is_displayed() else False
+            )
+        )
+        assert driver.find_element(By.CSS_SELECTOR, 'label[for="unlock-phrase-input"]').text == "Type phrase to pause"
+        assert driver.find_element(By.ID, "unlock-phrase-display").text == "Take a break"
+        typing_surface.click()
+        ActionChains(driver).send_keys("TakX").perform()
+        incorrect = driver.find_elements(By.CSS_SELECTOR, "#unlock-phrase-display .typing-char.incorrect")
+        assert len(incorrect) == 1 and incorrect[0].text == "e"
+        if screenshot_dir:
+            save_white_debug_screenshot(
+                driver, Path(screenshot_dir) / "blocked-pause-phrase-white-backdrop.png"
+            )
         print(
             f"Firefox {driver.capabilities['browserVersion']}: XPI installed; "
-            "startup menu, content-sized layout, phrase typing, accordion, and persistence verified"
+            "startup menu, content-sized layout, settings typing, both Monkeytype challenges, and persistence verified"
         )
     finally:
         driver.quit()
