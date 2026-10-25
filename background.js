@@ -3,6 +3,8 @@ let blockList = [];
 let whiteList = [];
 let adultContentBlockingEnabled = true;
 let mode = "block";
+let autoTurnOn = true;
+let startupMode = "block";
 let unlockMode = "timer";
 let timerMinutes = 25;
 let unlockPhrase = "I swear to god I will focus";
@@ -78,6 +80,8 @@ const SETTINGS_STORAGE_KEYS = [
   "whiteList",
   "adultContentBlockingEnabled",
   "mode",
+  "autoTurnOn",
+  "startupMode",
   "unlockMode",
   "timerMinutes",
   "unlockPhrase",
@@ -974,6 +978,8 @@ async function persistState() {
     whiteList,
     adultContentBlockingEnabled,
     mode,
+    autoTurnOn,
+    startupMode,
     unlockMode,
     timerMinutes,
     unlockPhrase,
@@ -1004,6 +1010,14 @@ function applySettingsPayload(payload = {}) {
 
   if ("mode" in payload) {
     mode = sanitizeMode(payload.mode);
+  }
+
+  if ("autoTurnOn" in payload) {
+    autoTurnOn = payload.autoTurnOn !== false;
+  }
+
+  if ("startupMode" in payload) {
+    startupMode = sanitizeMode(payload.startupMode);
   }
 
   if ("unlockMode" in payload) {
@@ -1068,6 +1082,8 @@ async function loadState() {
     "whiteList",
     "adultContentBlockingEnabled",
     "mode",
+    "autoTurnOn",
+    "startupMode",
     "unlockMode",
     "timerMinutes",
     "unlockPhrase",
@@ -1099,6 +1115,9 @@ async function loadState() {
   if (stored.mode !== undefined) {
     mode = sanitizeMode(stored.mode);
   }
+
+  autoTurnOn = stored.autoTurnOn !== false;
+  startupMode = sanitizeMode(stored.startupMode);
 
   if (stored.unlockMode !== undefined) {
     unlockMode = sanitizeUnlockMode(stored.unlockMode);
@@ -1495,7 +1514,15 @@ browser.runtime.onInstalled.addListener(() => {
 
 if (browser?.runtime?.onStartup?.addListener) {
   browser.runtime.onStartup.addListener(() => {
-    void clearStaleActionBadges();
+    void bootstrapPromise.then(async () => {
+      if (autoTurnOn) {
+        await startBlockingSession({ mode: startupMode });
+      } else {
+        await clearStaleActionBadges();
+      }
+    }).catch((error) => {
+      console.error("Failed to apply startup blocking setting", error);
+    });
   });
 }
 
@@ -1573,7 +1600,7 @@ browser.runtime.onMessage.addListener((message = {}) => {
 
 void clearStaleActionBadges();
 
-void loadState()
+const bootstrapPromise = loadState()
   .then(async () => {
     await setupAdultListRefreshAlarm();
     await ensureAdultDomainSetLoaded();

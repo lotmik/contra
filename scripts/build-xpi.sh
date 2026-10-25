@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST_DIR="${ROOT_DIR}/dist"
+DIST_DIR="/home/mik/projects/contra/dist"
 OUTPUT_XPI="${DIST_DIR}/contra.xpi"
 FIXED_TIMESTAMP="202001010000.00"
 
@@ -30,9 +30,7 @@ done
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
-
-mkdir -p "${DIST_DIR}"
-rm -f "${OUTPUT_XPI}"
+STAGED_XPI="${TMP_DIR}/contra.xpi"
 
 for relative_path in "${FILES[@]}"; do
   mkdir -p "${TMP_DIR}/$(dirname "${relative_path}")"
@@ -43,9 +41,9 @@ done
 (
   cd "${TMP_DIR}"
   if command -v zip >/dev/null 2>&1; then
-    zip -X -q "${OUTPUT_XPI}" "${FILES[@]}"
+    zip -X -q "${STAGED_XPI}" "${FILES[@]}"
   elif command -v python3 >/dev/null 2>&1; then
-    python3 - "${OUTPUT_XPI}" "${FILES[@]}" <<'PY'
+    python3 - "${STAGED_XPI}" "${FILES[@]}" <<'PY'
 import sys
 import zipfile
 
@@ -62,4 +60,6 @@ PY
   fi
 )
 
+mkdir -p "${DIST_DIR}"
+mv -f "${STAGED_XPI}" "${OUTPUT_XPI}"
 echo "Built ${OUTPUT_XPI}"

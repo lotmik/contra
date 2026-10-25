@@ -58,7 +58,7 @@ This file defines project context and execution rules for agents working in this
 - Package:
   - `bash scripts/build-xpi.sh`
 - Output:
-  - `dist/contra.xpi`
+  - `/home/mik/projects/contra/dist/contra.xpi`
 
 ## 2) Agent Workflow Rules
 

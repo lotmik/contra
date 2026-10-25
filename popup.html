@@ -59,6 +59,7 @@
 
             <label for="unlock-phrase-input">unlock phrase</label>
             <div id="unlock-typing-surface">
+              <div id="unlock-phrase-display" aria-label="phrase to type"></div>
               <input
                 id="unlock-phrase-input"
                 name="unlock-phrase-input"
@@ -67,12 +68,8 @@
                 autocapitalize="off"
                 autocorrect="off"
                 spellcheck="false"
+                placeholder="type the phrase above"
               />
-              <div
-                id="unlock-phrase-display"
-                aria-label="type unlock phrase"
-              ></div>
-              <span id="unlock-phrase-caret" aria-hidden="true"></span>
             </div>
             <div id="unlock-action-row">
               <button id="unlock-break-btn" type="button" hidden>break 2 min</button>
@@ -110,6 +107,15 @@
                     <option value="block">blocklist</option>
                     <option value="allow">whitelist</option>
                   </select>
+                </div>
+
+                <div class="control-group startup-settings" id="startup-settings-group">
+                  <span id="startup-mode-label" class="control-label">auto turn on</span>
+                  <div id="startup-mode-segment" class="segmented-control" role="radiogroup" aria-labelledby="startup-mode-label">
+                    <button type="button" class="segment-option" role="radio" aria-checked="false" tabindex="-1" data-value="off">off</button>
+                    <button type="button" class="segment-option" role="radio" aria-checked="false" tabindex="-1" data-value="block">blocklist</button>
+                    <button type="button" class="segment-option" role="radio" aria-checked="false" tabindex="-1" data-value="allow">whitelist</button>
+                  </div>
                 </div>
 
                 <details id="website-settings-dropdown" class="settings-sub-dropdown" open>

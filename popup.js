@@ -30,6 +30,8 @@ const MANAGED_POLICY_FORCE_ADULT_KEYS = ["forceAdultBlock", "forceAdultBlocking"
 const STORAGE_KEYS = [
   "isBlocking",
   "mode",
+  "autoTurnOn",
+  "startupMode",
   "blockList",
   "whiteList",
   "adultContentBlockingEnabled",
@@ -53,6 +55,8 @@ const STORAGE_KEYS = [
 const state = {
   isBlocking: false,
   mode: "block",
+  autoTurnOn: true,
+  startupMode: "block",
   blockList: [],
   whiteList: [],
   adultContentBlockingEnabled: true,
@@ -104,7 +108,6 @@ const elements = {
   unlockTypingSurface: document.getElementById("unlock-typing-surface"),
   unlockPhraseInput: document.getElementById("unlock-phrase-input"),
   unlockPhraseDisplay: document.getElementById("unlock-phrase-display"),
-  unlockPhraseCaret: document.getElementById("unlock-phrase-caret"),
   unlockActionRow: document.getElementById("unlock-action-row"),
   unlockBreakButton: document.getElementById("unlock-break-btn"),
   unlockConfirmButton: document.getElementById("unlock-confirm-btn"),
@@ -117,6 +120,7 @@ const elements = {
   websiteSettingsSummary: document.getElementById("website-settings-summary"),
   modeSelect: document.getElementById("mode-select"),
   modeSegment: document.getElementById("mode-segment"),
+  startupModeSegment: document.getElementById("startup-mode-segment"),
   urlList: document.getElementById("url-list"),
   urlListError: document.getElementById("url-list-error"),
   siteListEditor: document.getElementById("site-list-editor"),
@@ -439,158 +443,17 @@ function reconcileUnlockPhraseSettingLayout() {
   scheduleUnlockPhraseSettingResize();
 }
 
-function getReferencePhraseForTyping() {
-  return sanitizeUnlockPhrase(state.unlockPhrase);
-}
-
 function sanitizeTypedPhraseInput(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .replace(/^\s+/, "");
 }
 
-function getSanitizedCursorOffset(rawValue, rawSelectionStart) {
-  const safeValue = String(rawValue || "");
-  const safeSelection = Number.isInteger(rawSelectionStart) ? rawSelectionStart : safeValue.length;
-  const clampedSelection = Math.max(0, Math.min(safeValue.length, safeSelection));
-  const prefix = safeValue.slice(0, clampedSelection);
-  return sanitizeTypedPhraseInput(prefix).length;
-}
-
-function getCaretWordLocation(typedInput, cursorOffset) {
-  const safeInput = String(typedInput || "");
-  const clampedOffset = Math.max(0, Math.min(safeInput.length, Number(cursorOffset) || 0));
-  const prefix = safeInput.slice(0, clampedOffset);
-  const splitPrefix = prefix.split(" ");
-  return {
-    wordIndex: Math.max(0, splitPrefix.length - 1),
-    charIndex: splitPrefix[splitPrefix.length - 1]?.length || 0
-  };
-}
-
-function charsMatchAtIndex(referenceChar, typedChar) {
-  return String(referenceChar) === String(typedChar);
-}
-
-function appendTypingCharacter(fragment, character, variant, startOffset) {
-  const span = document.createElement("span");
-  span.className = `typing-char ${variant}`;
-  span.textContent = character;
-  span.dataset.start = String(startOffset);
-  span.dataset.end = String(startOffset + character.length);
-  fragment.appendChild(span);
-}
-
-function updateTypingCaretPosition(caretBoundaryOffset) {
-  const display = elements.unlockPhraseDisplay;
-  const caret = elements.unlockPhraseCaret;
-  if (!display || !caret || display.hidden || elements.unlockPhraseInput.hidden) {
-    if (caret) {
-      caret.hidden = true;
-    }
-    return;
+function syncUnlockPhraseReference() {
+  const referencePhrase = sanitizeUnlockPhrase(state.unlockPhrase);
+  if (elements.unlockPhraseDisplay.textContent !== referencePhrase) {
+    elements.unlockPhraseDisplay.textContent = referencePhrase;
   }
-
-  const firstAtBoundary = display.querySelector(`.typing-char[data-start="${caretBoundaryOffset}"]`);
-  const prevAtBoundary = display.querySelector(`.typing-char[data-end="${caretBoundaryOffset}"]`);
-  const sourceChar =
-    firstAtBoundary ||
-    prevAtBoundary ||
-    display.querySelector(".typing-char:last-of-type");
-
-  if (!sourceChar) {
-    caret.hidden = true;
-    return;
-  }
-
-  const displayRect = display.getBoundingClientRect();
-  const charRect = sourceChar.getBoundingClientRect();
-  const isBeforeChar = Boolean(firstAtBoundary);
-  const left = isBeforeChar ? charRect.left - displayRect.left : charRect.right - displayRect.left;
-  const top = charRect.top - displayRect.top;
-  const lineHeight = charRect.height || parseFloat(getComputedStyle(display).lineHeight) || 20;
-
-  caret.hidden = false;
-  caret.style.transform = `translate(${left}px, ${top}px)`;
-  caret.style.height = `${lineHeight}px`;
-}
-
-function renderPhraseTypingPreview() {
-  const display = elements.unlockPhraseDisplay;
-  if (!display) {
-    return;
-  }
-
-  const referencePhrase = getReferencePhraseForTyping();
-  const rawTypedInput = String(elements.unlockPhraseInput.value || "");
-  const typedInput = sanitizeTypedPhraseInput(rawTypedInput);
-  const cursorOffset = getSanitizedCursorOffset(rawTypedInput, elements.unlockPhraseInput.selectionStart);
-  const caretLocation = getCaretWordLocation(typedInput, cursorOffset);
-  const referenceWords = referencePhrase.split(" ");
-  const inputWords = typedInput.length > 0 ? typedInput.split(" ") : [""];
-  const totalWords = Math.max(referenceWords.length, inputWords.length);
-  const caretWordIndex = caretLocation.wordIndex;
-  const caretCharIndex = caretLocation.charIndex;
-  const fragment = document.createDocumentFragment();
-  let renderedOffset = 0;
-  let caretBoundaryOffset = 0;
-
-  for (let wordIndex = 0; wordIndex < totalWords; wordIndex += 1) {
-    const referenceWord = referenceWords[wordIndex] || "";
-    const inputWord = inputWords[wordIndex] || "";
-    const overflowWord = inputWord.length > referenceWord.length ? inputWord.slice(referenceWord.length) : "";
-    const totalVisibleWordLength = referenceWord.length + overflowWord.length;
-    const isCaretWord = wordIndex === caretWordIndex;
-    const clampedCaretIndex = Math.min(caretCharIndex, totalVisibleWordLength);
-
-    for (let charIndex = 0; charIndex < referenceWord.length; charIndex += 1) {
-      if (isCaretWord && clampedCaretIndex === charIndex) {
-        caretBoundaryOffset = renderedOffset;
-      }
-
-      const referenceChar = referenceWord[charIndex];
-      const typedChar = inputWord[charIndex];
-      if (typedChar === undefined) {
-        appendTypingCharacter(fragment, referenceChar, "pending", renderedOffset);
-      } else if (charsMatchAtIndex(referenceChar, typedChar)) {
-        appendTypingCharacter(fragment, referenceChar, "correct", renderedOffset);
-      } else {
-        appendTypingCharacter(fragment, referenceChar, "incorrect", renderedOffset);
-      }
-
-      renderedOffset += 1;
-    }
-
-    for (let overflowIndex = 0; overflowIndex < overflowWord.length; overflowIndex += 1) {
-      const charPosition = referenceWord.length + overflowIndex;
-      if (isCaretWord && clampedCaretIndex === charPosition) {
-        caretBoundaryOffset = renderedOffset;
-      }
-
-      appendTypingCharacter(fragment, overflowWord[overflowIndex], "extra", renderedOffset);
-      renderedOffset += 1;
-    }
-
-    if (isCaretWord && clampedCaretIndex === totalVisibleWordLength) {
-      caretBoundaryOffset = renderedOffset;
-    }
-
-    if (wordIndex < totalWords - 1) {
-      const hasTypedSpaceAfterWord = wordIndex < inputWords.length - 1;
-      const hasReferenceSpaceAfterWord = wordIndex < referenceWords.length - 1;
-      let spaceVariant = "pending";
-      if (hasTypedSpaceAfterWord) {
-        spaceVariant = hasReferenceSpaceAfterWord ? "correct" : "extra";
-      }
-
-      appendTypingCharacter(fragment, " ", spaceVariant, renderedOffset);
-      renderedOffset += 1;
-    }
-  }
-
-  display.replaceChildren(fragment);
-  updateTypingCaretPosition(caretBoundaryOffset);
-  updateProgressLine();
 }
 
 function setUnlockActionButtonState(button, { disabled, phraseLocked }) {
@@ -1157,7 +1020,25 @@ function updateSegmentedControl(segment, value) {
 
 function syncSegmentedControlsFromState() {
   updateSegmentedControl(elements.modeSegment, elements.modeSelect.value);
+  updateSegmentedControl(elements.startupModeSegment, state.autoTurnOn ? state.startupMode : "off");
   updateSegmentedControl(elements.unlockModeSegment, elements.unlockModeSelect.value);
+}
+
+function selectStartupModeFromSegment(value) {
+  if (value !== "off" && value !== "block" && value !== "allow") {
+    return;
+  }
+
+  const selectedValue = state.autoTurnOn ? state.startupMode : "off";
+  if (selectedValue === value) {
+    return;
+  }
+
+  state.autoTurnOn = value !== "off";
+  if (state.autoTurnOn) {
+    state.startupMode = value;
+  }
+  handleStartupSettingChange();
 }
 
 function selectModeFromSegment(value) {
@@ -1192,12 +1073,17 @@ function getSegmentOptionButtons(segment) {
 }
 
 function activateSegmentOption(button) {
-  if (!button) {
+  if (!button || button.disabled) {
     return;
   }
 
   if (button.closest("#mode-segment")) {
     selectModeFromSegment(button.dataset.value);
+    return;
+  }
+
+  if (button.closest("#startup-mode-segment")) {
+    selectStartupModeFromSegment(button.dataset.value);
     return;
   }
 
@@ -1672,7 +1558,6 @@ function setPhraseControls({ visible, label, disabled }) {
   elements.unlockTypingSurface.hidden = !visible;
   elements.unlockPhraseDisplay.hidden = !visible;
   elements.unlockPhraseInput.hidden = !visible;
-  elements.unlockPhraseCaret.hidden = !visible;
   elements.unlockPhraseInput.disabled = disabled;
   if (!visible || disabled) {
     elements.unlockPhraseInput.blur();
@@ -1680,8 +1565,6 @@ function setPhraseControls({ visible, label, disabled }) {
   if (label) {
     elements.unlockPhraseLabel.textContent = label;
   }
-
-  renderPhraseTypingPreview();
 }
 
 function focusUnlockControl() {
@@ -1785,6 +1668,8 @@ async function saveStateToStorage() {
   await browser.storage.local.set({
     isBlocking: state.isBlocking,
     mode: state.mode,
+    autoTurnOn: state.autoTurnOn,
+    startupMode: state.startupMode,
     blockList: state.blockList,
     whiteList: state.whiteList,
     adultContentBlockingEnabled: state.adultContentBlockingEnabled,
@@ -1808,6 +1693,8 @@ async function loadStateFromStorage() {
 
   state.isBlocking = stored.isBlocking === true;
   state.mode = sanitizeMode(stored.mode);
+  state.autoTurnOn = stored.autoTurnOn !== false;
+  state.startupMode = sanitizeMode(stored.startupMode);
   state.blockList = sanitizeList(stored.blockList, "block");
   state.whiteList = sanitizeList(stored.whiteList, "allow");
   state.adultContentBlockingEnabled =
@@ -1883,7 +1770,7 @@ function updateLockedChallenge() {
   elements.body.classList.toggle("is-paused", getPauseRemainingMs() > 0);
   updateTimerDisplay();
   updateProgressLine();
-  renderPhraseTypingPreview();
+  syncUnlockPhraseReference();
 
   const isTimerMode = state.unlockMode === "timer";
   const phraseInput = normalizePhrase(elements.unlockPhraseInput.value);
@@ -2254,6 +2141,16 @@ function handleModeChange() {
     });
 }
 
+function handleStartupSettingChange() {
+  syncSegmentedControlsFromState();
+  void browser.storage.local.set({
+    autoTurnOn: state.autoTurnOn,
+    startupMode: state.startupMode
+  }).catch((error) => {
+    console.error("Failed to save startup setting", error);
+  });
+}
+
 function handleUrlListInput() {
   if (elements.siteListEditor?.contains(document.activeElement) === true) {
     syncUrlListFromSiteRows();
@@ -2389,6 +2286,13 @@ function handleModeSegmentClick(event) {
   }
 
   selectModeFromSegment(button.dataset.value);
+}
+
+function handleStartupModeSegmentClick(event) {
+  const button = event.target.closest(".segment-option");
+  if (button && !button.disabled) {
+    selectStartupModeFromSegment(button.dataset.value);
+  }
 }
 
 function handleUnlockModeSegmentClick(event) {
@@ -2638,7 +2542,7 @@ function handleUnlockPhraseSettingInput() {
   autoResizeUnlockPhraseSettingField();
   scheduleUnlockModeSettingsMinHeightSync();
   state.unlockPhrase = sanitized;
-  renderPhraseTypingPreview();
+  syncUnlockPhraseReference();
   void saveStateToStorage().catch((error) => {
     console.error("Failed to save unlock phrase", error);
   });
@@ -2820,21 +2724,7 @@ function handlePhraseInput() {
     return;
   }
 
-  renderPhraseTypingPreview();
-}
-
-function handlePhraseInputFocus() {
-  elements.unlockPhraseDisplay.classList.add("is-focus-visible");
-  renderPhraseTypingPreview();
-}
-
-function handlePhraseInputBlur() {
-  elements.unlockPhraseDisplay.classList.remove("is-focus-visible");
-  elements.unlockPhraseCaret.hidden = true;
-}
-
-function handlePhraseCursorMove() {
-  renderPhraseTypingPreview();
+  syncUnlockPhraseReference();
 }
 
 function handleUnlockPhraseKeydown(event) {
@@ -2926,6 +2816,8 @@ async function initializePopup() {
   elements.modeSelect.addEventListener("change", handleModeChange);
   elements.modeSegment?.addEventListener("click", handleModeSegmentClick);
   elements.modeSegment?.addEventListener("keydown", handleSegmentOptionKeydown);
+  elements.startupModeSegment?.addEventListener("click", handleStartupModeSegmentClick);
+  elements.startupModeSegment?.addEventListener("keydown", handleSegmentOptionKeydown);
   elements.urlList.addEventListener("input", handleUrlListInput);
   elements.urlList.addEventListener("blur", handleUrlListBlur);
   elements.urlList.addEventListener("change", handleUrlListBlur);
@@ -2969,13 +2861,7 @@ async function initializePopup() {
   elements.unlockPhraseInput.addEventListener("paste", handleUnlockPhrasePaste);
   elements.unlockPhraseInput.addEventListener("beforeinput", handleUnlockPhraseBeforeInput);
   elements.unlockPhraseInput.addEventListener("drop", handleUnlockPhrasePaste);
-  elements.unlockPhraseInput.addEventListener("focus", handlePhraseInputFocus);
-  elements.unlockPhraseInput.addEventListener("blur", handlePhraseInputBlur);
-  elements.unlockPhraseInput.addEventListener("keyup", handlePhraseCursorMove);
-  elements.unlockPhraseInput.addEventListener("click", handlePhraseCursorMove);
-  elements.unlockPhraseInput.addEventListener("select", handlePhraseCursorMove);
   window.addEventListener("keydown", handleGlobalKeydown);
-  window.addEventListener("resize", renderPhraseTypingPreview);
   window.addEventListener("beforeunload", () => {
     syncUrlListFromSiteRows();
     flushPendingUrlListSync();

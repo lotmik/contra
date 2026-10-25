@@ -15,6 +15,23 @@ I built this addon for my personal needs because I could not find such a hardcor
 - ✍️ **Phrase mode**: allows you to set a phrase and only unblocks if you copy it letter by letter. After typing the phrase, you can either stop blocking or take a 2 minute break. The phrase has to be something profound, ideally an oath, so that when you type it, you make a conscious decision to leave the flow state.
 - ⏲️ **Timer mode**: allows you to set a duration and a "pause phrase" (the same principle as above). When blocked, if time is not up, you cannot stop it, but you can pause by typing in the phrase by 2 minutes.
 - 🔞 **Adult mode**: blocks all explicit websites from a constantly updated list ([Anti-Porn-HOSTS-File](https://github.com/4skinSkywalker/Anti-Porn-HOSTS-File)). Works independently from other modes.
+
+## Test
+
+Install the test dependency once, then run the full local test command:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-test.txt
+PATH="$PWD/.venv/bin:$PATH" bash scripts/test.sh
+```
+
+The command checks JavaScript syntax, runs startup and popup behavior tests, builds the XPI, then installs that XPI temporarily in a fresh headless Firefox profile. The Firefox test verifies the toolbar action, opens the extension popup, and checks the compact startup menu, keyboard control, and saved state after reload. Selenium Manager downloads geckodriver on first use. The profile is discarded when the test ends.
+
+For a visual popup check, load `/home/mik/projects/contra/dist/contra.xpi` using Firefox's `about:debugging` → **This Firefox** → **Load Temporary Add-on**. Check that **auto turn on** starts with **blocklist** selected, that changing to **whitelist** or **off** survives closing and reopening the popup, and that the phrase input responds immediately and enables **Stop** only for the complete phrase.
+
+A temporary add-on is removed when Firefox restarts, so it cannot verify the actual `runtime.onStartup` event. The automated startup tests invoke that event against a mocked browser. To verify a real restart, use a signed build in a disposable Firefox profile, or an unsigned build in Firefox Developer Edition/Nightly with signature enforcement disabled; restart Firefox and check the enabled blocklist, selected whitelist, and disabled cases.
+
 ## Install
 Although you can use the addon separately, it is recommended to cut all bypass methods in advance by getting a custom Firefox Entreprise Policy. It basically enforces some rules for Firefox like force install of the addon, which you cannot change easily.
 
