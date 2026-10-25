@@ -80,7 +80,7 @@ body {
 }
 
 #popup-root.is-settings-expanded {
-  padding-bottom: 12px;
+  padding-bottom: 8px;
 }
 
 #site-import-panel {
@@ -455,16 +455,22 @@ label,
 
 #settings-dropdown[open] > #settings-blur-wrap {
   display: block;
+  margin-top: 6px;
 }
 
 #settings-area {
   min-height: 0;
-  max-height: 430px;
+  max-height: 445px;
   overflow-y: auto;
   scrollbar-width: none;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+}
+
+#settings-area::-webkit-scrollbar,
+.site-row-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 #settings-area > * {
@@ -474,8 +480,7 @@ label,
 #unlock-mode-settings-stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-height: var(--unlock-mode-settings-min-height, 0);
+  gap: 10px;
 }
 
 #unlock-mode-settings-stack > * {
@@ -488,11 +493,6 @@ body.is-unlock-mode-timer #unlock-mode-settings-stack > #timer-settings-group {
 
 body.is-unlock-mode-timer #unlock-mode-settings-stack > #unlock-phrase-setting-dropdown {
   order: 2;
-}
-
-#settings-area::-webkit-scrollbar,
-.site-row-scroll::-webkit-scrollbar {
-  display: none;
 }
 
 .control-group {
@@ -511,7 +511,7 @@ body.is-unlock-mode-timer #unlock-mode-settings-stack > #unlock-phrase-setting-d
 
 #adult-content-control {
   width: 100%;
-  margin-top: -10px;
+  margin-top: auto;
 }
 
 #adult-content-toggle {
@@ -685,14 +685,6 @@ body.is-unlock-mode-timer #unlock-mode-settings-stack > #unlock-phrase-setting-d
   pointer-events: none;
 }
 
-.startup-settings {
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-}
-
 #startup-mode-segment {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -706,13 +698,13 @@ body.is-unlock-mode-timer #unlock-mode-settings-stack > #unlock-phrase-setting-d
 }
 
 .site-row-scroll {
-  max-height: 90px;
+  max-height: 84px;
   overflow-y: auto;
   scrollbar-width: none;
 }
 
 .site-row {
-  min-height: 24px;
+  min-height: 22px;
 }
 
 .site-row {
@@ -1000,17 +992,17 @@ textarea {
 }
 
 #unlock-phrase-setting {
-  min-height: 0;
+  height: 110px;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--text-soft);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 300;
-  line-height: 1.55;
+  line-height: 1.5;
   resize: none;
-  overflow-y: hidden;
+  overflow-y: auto;
   padding: 0;
 }
 

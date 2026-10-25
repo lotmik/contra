@@ -10,7 +10,6 @@ const TIMER_END_TIME_WARNING_TEXT = "Timer exceeds 4 hours. Proceed if desired";
 const INPUT_SYNC_DEBOUNCE_MS = 500;
 const URL_LIST_SYNC_DEBOUNCE_MS = 250;
 const URL_LIST_VALIDATION_DELAY_MS = 500;
-const UNLOCK_PHRASE_SETTING_MIN_HEIGHT = 0;
 const PAUSE_POSITIVE_MS = 2 * 60 * 1000;
 const COLLAPSED_CURRENT_TAB_SAVED_FEEDBACK_MS = 5000;
 const CURRENT_TAB_RULE_LABELS = {
@@ -86,7 +85,6 @@ let urlListValidationTimeoutId = null;
 let isSiteAddFormVisible = false;
 let isSiteImportPopoverVisible = false;
 let isSyncingSettingsAccordion = false;
-let isMeasuringUnlockModeSettingsHeight = false;
 let skipNextUnlockPhraseSettingBlurSave = false;
 let currentTabUrl = "";
 let canAddCurrentTab = false;
@@ -141,7 +139,6 @@ const elements = {
   adultContentStatus: document.getElementById("adult-content-status"),
   unlockModeSelect: document.getElementById("unlock-mode-select"),
   unlockModeSegment: document.getElementById("unlock-mode-segment"),
-  unlockModeSettingsStack: document.getElementById("unlock-mode-settings-stack"),
   timerSettingsGroup: document.getElementById("timer-settings-group"),
   timerEndTimeInput: document.getElementById("timer-end-time"),
   timerEndTimeError: document.getElementById("timer-end-time-error"),
@@ -293,154 +290,6 @@ function sanitizeUnlockPhrase(value) {
     .trim()
     .replace(/\s+/g, " ");
   return normalized.length > 0 ? normalized : DEFAULT_UNLOCK_PHRASE;
-}
-
-function autoResizeUnlockPhraseSettingField() {
-  const field = elements.unlockPhraseSettingInput;
-  if (!field) {
-    return;
-  }
-
-  if (field.getClientRects().length === 0) {
-    field.style.height = "";
-    return;
-  }
-
-  const currentValue = field.value;
-  const selectionStart = field.selectionStart;
-  const selectionEnd = field.selectionEnd;
-  const selectionDirection = field.selectionDirection;
-  field.style.height = "auto";
-  const currentContentHeight = field.scrollHeight;
-  field.value = DEFAULT_UNLOCK_PHRASE;
-  field.style.height = "auto";
-  const defaultPhraseHeight = field.scrollHeight;
-  field.value = currentValue;
-  if (document.activeElement === field) {
-    field.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
-  }
-  const targetHeight = Math.max(
-    UNLOCK_PHRASE_SETTING_MIN_HEIGHT,
-    Math.min(currentContentHeight, defaultPhraseHeight)
-  );
-  field.style.height = `${targetHeight}px`;
-  field.style.overflowY = currentContentHeight > defaultPhraseHeight ? "auto" : "hidden";
-}
-
-function scheduleUnlockPhraseSettingResize() {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(autoResizeUnlockPhraseSettingField);
-  });
-}
-
-function measureUnlockModeSettingsHeight({ showTimer, openPhrase, phraseValue = null }) {
-  const stack = elements.unlockModeSettingsStack;
-  const timerGroup = elements.timerSettingsGroup;
-  const phraseDropdown = elements.unlockPhraseSettingDropdown;
-  const phraseField = elements.unlockPhraseSettingInput;
-  if (!stack || !timerGroup || !phraseDropdown) {
-    return 0;
-  }
-
-  const previousTimerGroupHidden = timerGroup.hidden;
-  const previousPhraseOpen = phraseDropdown.open;
-  const wasTimerMode = elements.body.classList.contains("is-unlock-mode-timer");
-  const previousPhraseValue = phraseField?.value ?? "";
-  const previousPhraseSelectionStart = phraseField?.selectionStart ?? null;
-  const previousPhraseSelectionEnd = phraseField?.selectionEnd ?? null;
-  const previousPhraseSelectionDirection = phraseField?.selectionDirection ?? "none";
-  const previousMinHeight = stack.style.getPropertyValue("--unlock-mode-settings-min-height");
-
-  isMeasuringUnlockModeSettingsHeight = true;
-  stack.style.setProperty("--unlock-mode-settings-min-height", "0px");
-
-  if (showTimer) {
-    elements.body.classList.add("is-unlock-mode-timer");
-  } else {
-    elements.body.classList.remove("is-unlock-mode-timer");
-  }
-
-  timerGroup.hidden = !showTimer;
-  phraseDropdown.open = openPhrase;
-
-  if (phraseField && phraseValue !== null) {
-    phraseField.value = phraseValue;
-  }
-
-  if (openPhrase && phraseField) {
-    autoResizeUnlockPhraseSettingField();
-  }
-
-  const height = Math.ceil(stack.getBoundingClientRect().height);
-
-  timerGroup.hidden = previousTimerGroupHidden;
-  phraseDropdown.open = previousPhraseOpen;
-  if (phraseField) {
-    phraseField.value = previousPhraseValue;
-    if (document.activeElement === phraseField && previousPhraseSelectionStart !== null && previousPhraseSelectionEnd !== null) {
-      phraseField.setSelectionRange(
-        previousPhraseSelectionStart,
-        previousPhraseSelectionEnd,
-        previousPhraseSelectionDirection
-      );
-    }
-    autoResizeUnlockPhraseSettingField();
-  }
-
-  if (wasTimerMode) {
-    elements.body.classList.add("is-unlock-mode-timer");
-  } else {
-    elements.body.classList.remove("is-unlock-mode-timer");
-  }
-
-  if (previousMinHeight) {
-    stack.style.setProperty("--unlock-mode-settings-min-height", previousMinHeight);
-  } else {
-    stack.style.removeProperty("--unlock-mode-settings-min-height");
-  }
-  isMeasuringUnlockModeSettingsHeight = false;
-  return height;
-}
-
-function syncUnlockModeSettingsMinHeight() {
-  const stack = elements.unlockModeSettingsStack;
-  if (!stack) {
-    return;
-  }
-
-  const timerHeight = measureUnlockModeSettingsHeight({ showTimer: true, openPhrase: false });
-  const defaultPhraseHeight = measureUnlockModeSettingsHeight({
-    showTimer: false,
-    openPhrase: true,
-    phraseValue: DEFAULT_UNLOCK_PHRASE
-  });
-  const currentPhraseHeight = measureUnlockModeSettingsHeight({
-    showTimer: false,
-    openPhrase: true
-  });
-  const defaultHeight = Math.max(timerHeight, defaultPhraseHeight);
-  const phraseHeightDelta = currentPhraseHeight - defaultPhraseHeight;
-  const minHeight = Math.max(0, defaultHeight + phraseHeightDelta);
-  stack.style.setProperty("--unlock-mode-settings-min-height", minHeight > 0 ? `${minHeight}px` : "0px");
-}
-
-function scheduleUnlockModeSettingsMinHeightSync() {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(syncUnlockModeSettingsMinHeight);
-  });
-}
-
-function reconcileUnlockPhraseSettingLayout() {
-  if (
-    !elements.settingsDropdown?.open ||
-    elements.settingsDropdown.hidden ||
-    elements.settingsDropdown.hasAttribute("inert") ||
-    !elements.unlockPhraseSettingDropdown?.open
-  ) {
-    return;
-  }
-
-  scheduleUnlockPhraseSettingResize();
 }
 
 function sanitizeTypedPhraseInput(value) {
@@ -1469,7 +1318,7 @@ function updatePopupBottomPaddingState() {
   elements.popupRoot?.classList.toggle("is-phrase-settings-expanded", isPhraseSectionExpanded);
 }
 
-function setTimerModeSettingsAccordion(activeSection) {
+function setSettingsAccordion(activeSection) {
   if (!elements.websiteSettingsDropdown || !elements.unlockPhraseSettingDropdown) {
     return;
   }
@@ -1478,33 +1327,15 @@ function setTimerModeSettingsAccordion(activeSection) {
   elements.websiteSettingsDropdown.open = activeSection === "website";
   elements.unlockPhraseSettingDropdown.open = activeSection === "phrase";
   isSyncingSettingsAccordion = false;
-  if (activeSection === "phrase") {
-    scheduleUnlockPhraseSettingResize();
-  } else {
-    autoResizeUnlockPhraseSettingField();
-  }
   updatePopupBottomPaddingState();
 }
 
-function syncSettingsAccordionForMode(preferredSection = null) {
+function syncSettingsAccordion() {
   if (!elements.websiteSettingsDropdown || !elements.unlockPhraseSettingDropdown) {
     return;
   }
 
-  if (state.unlockMode !== "timer") {
-    isSyncingSettingsAccordion = true;
-    elements.websiteSettingsDropdown.open = true;
-    elements.unlockPhraseSettingDropdown.open = state.unlockMode === "phrase";
-    isSyncingSettingsAccordion = false;
-    updatePopupBottomPaddingState();
-    reconcileUnlockPhraseSettingLayout();
-    return;
-  }
-
-  const activeSection =
-    preferredSection ||
-    (elements.unlockPhraseSettingDropdown.open ? "phrase" : "website");
-  setTimerModeSettingsAccordion(activeSection);
+  setSettingsAccordion(elements.unlockPhraseSettingDropdown.open ? "phrase" : "website");
 }
 
 function setChallengeVisibility(isVisible) {
@@ -1548,8 +1379,7 @@ function updateTimerSettingsVisibility() {
       state.unlockMode === "timer" ? "pause phrase" : "unlock phrase";
   }
 
-  syncSettingsAccordionForMode("website");
-  scheduleUnlockModeSettingsMinHeightSync();
+  syncSettingsAccordion();
   updatePopupBottomPaddingState();
 }
 
@@ -1635,8 +1465,9 @@ function syncFormFromState() {
   syncSegmentedControlsFromState();
   updateTimerSettingsVisibility();
   updateCurrentTabButton();
-  elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
-  autoResizeUnlockPhraseSettingField();
+  if (document.activeElement !== elements.unlockPhraseSettingInput) {
+    elements.unlockPhraseSettingInput.value = sanitizeUnlockPhrase(state.unlockPhrase);
+  }
   syncTimerControlsFromState();
 }
 
@@ -2505,6 +2336,7 @@ function handleUnlockModeChange() {
   state.unlockMode = sanitizeUnlockMode(elements.unlockModeSelect.value);
   syncSegmentedControlsFromState();
   updateTimerSettingsVisibility();
+  setSettingsAccordion(state.unlockMode === "phrase" ? "phrase" : "website");
   if (state.isBlocking) {
     updateLockedChallenge();
     startTimerTick();
@@ -2539,18 +2371,11 @@ function handleUnlockPhraseSettingInput() {
     elements.unlockPhraseSettingInput.value = sanitized;
   }
 
-  autoResizeUnlockPhraseSettingField();
-  scheduleUnlockModeSettingsMinHeightSync();
   state.unlockPhrase = sanitized;
   syncUnlockPhraseReference();
   void saveStateToStorage().catch((error) => {
     console.error("Failed to save unlock phrase", error);
   });
-}
-
-function handleUnlockPhraseSettingTyping() {
-  autoResizeUnlockPhraseSettingField();
-  scheduleUnlockModeSettingsMinHeightSync();
 }
 
 function handleUnlockPhraseSettingKeydown(event) {
@@ -2574,51 +2399,28 @@ function handleUnlockPhraseSettingBlur() {
 }
 
 function handleUnlockPhraseSettingDropdownToggle() {
-  if (isMeasuringUnlockModeSettingsHeight) {
+  if (isSyncingSettingsAccordion) {
     return;
   }
 
-  if (!elements.unlockPhraseSettingDropdown?.open) {
-    autoResizeUnlockPhraseSettingField();
-    if (state.unlockMode === "timer" && !isSyncingSettingsAccordion) {
-      setTimerModeSettingsAccordion("website");
-      return;
-    }
-    scheduleUnlockModeSettingsMinHeightSync();
-    updatePopupBottomPaddingState();
-    return;
-  }
-
-  if (state.unlockMode === "timer" && !isSyncingSettingsAccordion) {
-    setTimerModeSettingsAccordion("phrase");
-  }
-  scheduleUnlockPhraseSettingResize();
-  scheduleUnlockModeSettingsMinHeightSync();
-  updatePopupBottomPaddingState();
+  setSettingsAccordion(elements.unlockPhraseSettingDropdown.open ? "phrase" : "website");
 }
 
 function handleSettingsDropdownToggle() {
   if (elements.settingsDropdown?.open) {
-    syncSettingsAccordionForMode();
-    reconcileUnlockPhraseSettingLayout();
+    syncSettingsAccordion();
   }
   updateCurrentTabButton();
   syncAdultContentControlFromState();
-  scheduleUnlockModeSettingsMinHeightSync();
   updatePopupBottomPaddingState();
 }
 
 function handleWebsiteSettingsDropdownToggle() {
-  if (state.unlockMode !== "timer" || isSyncingSettingsAccordion) {
+  if (isSyncingSettingsAccordion) {
     return;
   }
 
-  if (elements.websiteSettingsDropdown?.open) {
-    setTimerModeSettingsAccordion("website");
-    return;
-  }
-
-  setTimerModeSettingsAccordion("phrase");
+  setSettingsAccordion(elements.websiteSettingsDropdown.open ? "website" : "phrase");
 }
 
 function isEditableTarget(target) {
@@ -2801,6 +2603,9 @@ async function initializePopup() {
   await loadStateFromStorage();
   await loadManagedPolicyFromStorage();
   await refreshCurrentTabState();
+  if (state.unlockMode === "phrase") {
+    setSettingsAccordion("phrase");
+  }
   syncFormFromState();
   renderUi();
 
@@ -2845,9 +2650,7 @@ async function initializePopup() {
   elements.unlockModeSelect.addEventListener("change", handleUnlockModeChange);
   elements.unlockModeSegment?.addEventListener("click", handleUnlockModeSegmentClick);
   elements.unlockModeSegment?.addEventListener("keydown", handleSegmentOptionKeydown);
-  elements.unlockPhraseSettingInput.addEventListener("input", handleUnlockPhraseSettingTyping);
   elements.unlockPhraseSettingInput.addEventListener("keydown", handleUnlockPhraseSettingKeydown);
-  elements.unlockPhraseSettingInput.addEventListener("change", handleUnlockPhraseSettingInput);
   elements.unlockPhraseSettingInput.addEventListener("blur", handleUnlockPhraseSettingBlur);
   elements.settingsDropdown?.addEventListener("toggle", handleSettingsDropdownToggle);
   elements.websiteSettingsDropdown?.addEventListener("toggle", handleWebsiteSettingsDropdownToggle);

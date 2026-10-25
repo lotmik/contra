@@ -26,7 +26,7 @@ python3 -m venv .venv
 PATH="$PWD/.venv/bin:$PATH" bash scripts/test.sh
 ```
 
-The command checks JavaScript syntax, runs startup and popup behavior tests, builds the XPI, then installs that XPI temporarily in a fresh headless Firefox profile. The Firefox test verifies the toolbar action, opens the extension popup, and checks the compact startup menu, keyboard control, and saved state after reload. Selenium Manager downloads geckodriver on first use. The profile is discarded when the test ends.
+The command checks JavaScript syntax, runs startup and popup behavior tests, builds the XPI, then installs that XPI temporarily in a fresh headless Firefox profile. The Firefox test opens the toolbar popup, then clicks through the installed extension UI to verify the startup menu, saved state, a content-sized popup capped at 600 px, unmoving title and power controls, three fully visible website rows, the full default pause phrase, exclusive sections, and stable phrase typing. Set `CONTRA_SCREENSHOTS_DIR=/tmp/contra-visual-check` to save debug screenshots with a white page behind the dark popup, making unused popup space visible. Selenium Manager downloads geckodriver on first use. The profile is discarded when the test ends.
 
 For a visual popup check, load `/home/mik/projects/contra/dist/contra.xpi` using Firefox's `about:debugging` → **This Firefox** → **Load Temporary Add-on**. Check that **auto turn on** starts with **blocklist** selected, that changing to **whitelist** or **off** survives closing and reopening the popup, and that the phrase input responds immediately and enables **Stop** only for the complete phrase.
 
