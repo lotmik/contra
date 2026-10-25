@@ -40,8 +40,8 @@ I created a script that automatically installs everything for you, but you can a
 - `policies.ExtensionSettings[<addon_id>].installation_mode = "force_installed"`  
     Prevents removal/disabling of contra.
     
-- `policies.ExtensionSettings[<addon_id>].install_url = "https://addons.mozilla.org/firefox/downloads/latest/contra-blocker/latest.xpi"`  
-    This is the part that auto-downloads the latest contra. release.
+- `policies.ExtensionSettings[<addon_id>].install_url` points to AMO's latest Contra XPI with a unique `policy_refresh` query value.
+    Firefox downloads the add-on from this URL. Running an explicit `install` writes a new URL so a cached redirect cannot select the previous release.
 
 - `policies.ExtensionUpdate = true`
     Keeps Firefox extension auto-updates enabled under enterprise policy.
@@ -64,6 +64,7 @@ Short version:
 curl -fsSL https://ogy.de/contra-linux | sudo bash
 ```
 Use `scripts/policy.sh install` or `scripts/policy.sh uninstall` when you do not want automatic toggle behavior. The policy script is self-contained; it does not fetch archived install/uninstall helper scripts.
+To refresh the installed add-on after a new AMO release, run the explicit `install` command and restart Firefox. Do not run the toggle command again for this purpose, because it would remove the existing policy.
 
 For explicit actions from the direct URL:
 ```bash

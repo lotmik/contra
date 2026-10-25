@@ -919,6 +919,9 @@ fi
 
 case "${action}" in
   install)
+    # AMO can cache the unqualified latest.xpi redirect after a new release.
+    # Give each install a new policy URL so Firefox requests a fresh redirect.
+    install_url="${DEFAULT_INSTALL_URL}?policy_refresh=$(date -u +%s)-${RANDOM}-$$"
     install_policy
     ;;
   uninstall)
